@@ -189,8 +189,10 @@ func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersion
 	}()
 
 	if !ok {
+		fmt.Println("informers_map.go:178 not ok, ")
 		var err error
 		if i, started, err = ip.addInformerToMap(gvk, obj); err != nil {
+			fmt.Printf("*****addInformerToMap err = %+v\n", err)
 			return started, nil, err
 		}
 	}
@@ -223,6 +225,7 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	// Create a NewSharedIndexInformer and add it to the map.
 	var lw *cache.ListWatch
 	lw, err := ip.createListWatcher(gvk, ip)
+	fmt.Printf("inf_map.go:210, createListWatcher err: %+v", err)
 	if err != nil {
 		return nil, false, err
 	}
@@ -264,6 +267,7 @@ func createStructuredListWatch(gvk schema.GroupVersionKind, ip *specificInformer
 	// groupVersionKind to the Resource API we will use.
 	mapping, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
+		fmt.Printf("inf_map.go:238, createStructuredListWatch rest mapping err = %+v\n", err)
 		return nil, err
 	}
 

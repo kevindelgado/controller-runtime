@@ -213,6 +213,7 @@ func (cm *controllerManager) Add(r Runnable) error {
 		cm.nonLeaderElectionRunnables = append(cm.nonLeaderElectionRunnables, r)
 	} else {
 		shouldStart = cm.startedLeader
+		fmt.Printf("mgr/internal.go::Add(), Doesn need LE, shouldStart is %t\n", shouldStart)
 		cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
 	}
 
@@ -582,6 +583,7 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 	for _, c := range cm.leaderElectionRunnables {
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
+		fmt.Printf("LEADER RUNNABLES START c= %+v\n", c)
 		cm.startRunnable(c)
 	}
 
