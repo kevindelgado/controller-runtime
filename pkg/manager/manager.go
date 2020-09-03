@@ -114,6 +114,9 @@ type Manager interface {
 
 	// GetLogger returns this manager's logger.
 	GetLogger() logr.Logger
+
+	GetObj() runtime.Object
+	SetObj(runtime.Object)
 }
 
 // Options are the arguments for creating a new Manager
