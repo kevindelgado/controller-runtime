@@ -148,12 +148,16 @@ func (ip *informerCache) GetInformerForKind(ctx context.Context, gvk schema.Grou
 
 // GetInformer returns the informer for the obj
 func (ip *informerCache) GetInformer(ctx context.Context, obj runtime.Object) (Informer, error) {
+	// NOTE:TODO:(kdelga): see where the error is, but I suspect (98% sure) it's from the GVK check
+	// actually, nevermind, I think it's down below in InformersMap.Get()
 	gvk, err := apiutil.GVKForObject(obj, ip.Scheme)
 	if err != nil {
 		return nil, err
 	}
 
+	//NOTE:TODO(kdelga): gotta be here, right?
 	_, i, err := ip.InformersMap.Get(ctx, gvk, obj)
+	fmt.Printf("informer_cache.go:159 informers map err = %+v\n", err)
 	if err != nil {
 		return nil, err
 	}

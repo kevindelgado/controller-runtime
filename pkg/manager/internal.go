@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
@@ -37,6 +38,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/internal/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -59,6 +61,19 @@ const (
 
 var log = logf.RuntimeLog.WithName("manager")
 
+type ConditionalRunnable struct {
+	runnable     Runnable
+	mainStop     chan struct{}
+	presentStop  chan struct{}
+	installed    bool
+	groupversion string
+	kind         string
+}
+
+func (r ConditionalRunnable) Start(stop <-chan struct{}) error {
+	return r.runnable.Start(stop)
+}
+
 type controllerManager struct {
 	// config is the rest.config used to talk to the apiserver.  Required.
 	config *rest.Config
@@ -74,11 +89,17 @@ type controllerManager struct {
 	// These Runnables will not be blocked by lead election.
 	nonLeaderElectionRunnables []Runnable
 
+	conditionalRunnables []ConditionalRunnable
+
 	cache cache.Cache
+
+	obj runtime.Object
 
 	// TODO(directxman12): Provide an escape hatch to get individual indexers
 	// client is the client injected into Controllers (and EventHandlers, Sources and Predicates).
 	client client.Client
+
+	discoveryClient discovery.DiscoveryClient
 
 	// apiReader is the reader that will make requests to the api server and not the cache.
 	apiReader client.Reader
@@ -192,6 +213,14 @@ type controllerManager struct {
 	shutdownCtx context.Context
 }
 
+func (cm *controllerManager) SetObj(obj runtime.Object) {
+	cm.obj = obj
+}
+
+func (cm *controllerManager) GetObj() runtime.Object {
+	return cm.obj
+}
+
 // Add sets dependencies on i, and adds it to the list of Runnables to start.
 func (cm *controllerManager) Add(r Runnable) error {
 	cm.mu.Lock()
@@ -207,18 +236,30 @@ func (cm *controllerManager) Add(r Runnable) error {
 
 	var shouldStart bool
 
+	//if cr, ok := r.(ConditionalRunnable); ok {
+	//	cm.conditionalRunnables = append(cm.conditionalRunnables, cr)
+	//}
+
 	// Add the runnable to the leader election or the non-leaderelection list
 	if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
+		fmt.Printf("mgr/internal.go::Add(), doesn't need LE, shouldStart is %t\n", shouldStart)
 		shouldStart = cm.started
 		cm.nonLeaderElectionRunnables = append(cm.nonLeaderElectionRunnables, r)
 	} else {
 		shouldStart = cm.startedLeader
-		cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
+		fmt.Printf("mgr/internal.go::Add(), DOES need LE, shouldStart is %t\n", shouldStart)
+		//cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
+		cr := ConditionalRunnable{
+			runnable:     r,
+			groupversion: "batch.tutorial.kubebuilder.io/v1",
+			kind:         "CronJob",
+		}
+		cm.conditionalRunnables = append(cm.conditionalRunnables, cr)
 	}
 
 	if shouldStart {
 		// If already started, start the controller
-		cm.startRunnable(r)
+		cm.startRunnable(r, cm.internalStop)
 	}
 
 	return nil
@@ -393,13 +434,13 @@ func (cm *controllerManager) serveMetrics(stop <-chan struct{}) {
 			return err
 		}
 		return nil
-	}))
+	}), cm.internalStop)
 
 	// Shutdown the server when stop is closed
-	<-stop
-	if err := server.Shutdown(cm.shutdownCtx); err != nil {
-		cm.errChan <- err
-	}
+	//<-stop
+	//if err := server.Shutdown(cm.shutdownCtx); err != nil {
+	//	cm.errChan <- err
+	//}
 }
 
 func (cm *controllerManager) serveHealthProbes(stop <-chan struct{}) {
@@ -424,7 +465,7 @@ func (cm *controllerManager) serveHealthProbes(stop <-chan struct{}) {
 			return err
 		}
 		return nil
-	}))
+	}), cm.internalStop)
 	cm.healthzStarted = true
 	cm.mu.Unlock()
 
@@ -475,6 +516,8 @@ func (cm *controllerManager) Start(stop <-chan struct{}) (err error) {
 	}
 
 	go cm.startNonLeaderElectionRunnables()
+
+	go cm.startConditionalRunnables()
 
 	go func() {
 		if cm.resourceLock != nil {
@@ -562,13 +605,13 @@ func (cm *controllerManager) startNonLeaderElectionRunnables() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	cm.waitForCache()
+	cm.waitForCache(cm.internalStop)
 
 	// Start the non-leaderelection Runnables after the cache has synced
 	for _, c := range cm.nonLeaderElectionRunnables {
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
-		cm.startRunnable(c)
+		cm.startRunnable(c, cm.internalStop)
 	}
 }
 
@@ -576,20 +619,80 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	cm.waitForCache()
+	cm.waitForCache(cm.internalStop)
 
 	// Start the leader election Runnables after the cache has synced
 	for _, c := range cm.leaderElectionRunnables {
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
-		cm.startRunnable(c)
+		fmt.Printf("LEADER RUNNABLES START c= %+v\n", c)
+		cm.startRunnable(c, cm.internalStop)
 	}
 
 	cm.startedLeader = true
 }
 
-func (cm *controllerManager) waitForCache() {
+func (cm *controllerManager) startConditionalRunnables() {
+	fmt.Println("STARTING CONDITIONAL RUNNABLES")
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cm.waitForCache(cm.internalStop)
+
+	// TODO: add discovery client to the cm
+	dc := discovery.NewDiscoveryClientForConfigOrDie(config.GetConfigOrDie())
+	for _, cmcr := range cm.conditionalRunnables {
+		go func(c ConditionalRunnable) {
+
+			curInstalled := false
+			for {
+				select {
+				case <-cm.internalStop:
+					fmt.Println("internalStop fired")
+					return
+				default:
+				}
+				resources, err := dc.ServerResourcesForGroupVersion(c.groupversion)
+				if err != nil {
+					curInstalled = false
+					time.Sleep(time.Second)
+				} else {
+					curInstalled = false
+					for _, res := range resources.APIResources {
+						if res.Kind == c.kind {
+							curInstalled = true
+						}
+					}
+				}
+				if !c.installed && curInstalled { // not installed -> installed
+					//c.notifyPresent()
+					fmt.Printf("starting the conditional runnable startc = %+v\n", c)
+					// TODO: Join with cm.internalStop so that internal stop signals also kill the runnable and cache.
+					c.presentStop = make(chan struct{})
+					fmt.Println("waiting for cond cache")
+					cm.startRunnable(c, c.presentStop)
+					c.installed = true
+				} else if c.installed && !curInstalled { // installed -> not installed
+					// c.notifyAbsent()
+					// TODO: Nuke the cache/ remove the cronjob informer so it doesn't error
+					fmt.Println("STOP! CRD uninstalled")
+					close(c.presentStop)
+					cm.cache.Remove(cm.obj)
+					c.installed = false
+				} else {
+					// no change to the CRD's installation status
+					time.Sleep(time.Second)
+				}
+				time.Sleep(time.Second)
+			}
+		}(cmcr)
+	}
+}
+
+func (cm *controllerManager) waitForCache(stop <-chan struct{}) {
+	fmt.Println("wait for cache called")
 	if cm.started {
+		fmt.Println("cache started break immediately")
 		return
 	}
 
@@ -599,11 +702,11 @@ func (cm *controllerManager) waitForCache() {
 	}
 	cm.startRunnable(RunnableFunc(func(stop <-chan struct{}) error {
 		return cm.startCache(stop)
-	}))
+	}), stop)
 
 	// Wait for the caches to sync.
 	// TODO(community): Check the return value and write a test
-	cm.cache.WaitForCacheSync(cm.internalStop)
+	cm.cache.WaitForCacheSync(stop)
 	// TODO: This should be the return value of cm.cache.WaitForCacheSync but we abuse
 	// cm.started as check if we already started the cache so it must always become true.
 	// Making sure that the cache doesn't get started twice is needed to not get a "close
@@ -654,11 +757,12 @@ func (cm *controllerManager) Elected() <-chan struct{} {
 	return cm.elected
 }
 
-func (cm *controllerManager) startRunnable(r Runnable) {
+//TODO(kdelga): instead of passing in channels as args, caller should join the channels before calling.
+func (cm *controllerManager) startRunnable(r Runnable, stop <-chan struct{}) {
 	cm.waitForRunnable.Add(1)
 	go func() {
 		defer cm.waitForRunnable.Done()
-		if err := r.Start(cm.internalStop); err != nil {
+		if err := r.Start(stop); err != nil {
 			cm.errChan <- err
 		}
 	}()
