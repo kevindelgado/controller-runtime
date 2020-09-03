@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
@@ -37,7 +38,9 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	intctrl "sigs.k8s.io/controller-runtime/pkg/internal/controller"
 	logf "sigs.k8s.io/controller-runtime/pkg/internal/log"
 	intrec "sigs.k8s.io/controller-runtime/pkg/internal/recorder"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -70,15 +73,25 @@ type controllerManager struct {
 	// leaderElectionRunnables is the set of Controllers that the controllerManager injects deps into and Starts.
 	// These Runnables are managed by lead election.
 	leaderElectionRunnables []Runnable
+
 	// nonLeaderElectionRunnables is the set of webhook servers that the controllerManager injects deps into and Starts.
 	// These Runnables will not be blocked by lead election.
 	nonLeaderElectionRunnables []Runnable
+
+	// conditionalRunnables are the set of Controllers that only to be ran when the resource they are controlling
+	// has been installed on the cluster and will stop and restart the controller if the resource is
+	// uninstalled or reinstalled.
+	conditionalRunnables []Runnable
 
 	cache cache.Cache
 
 	// TODO(directxman12): Provide an escape hatch to get individual indexers
 	// client is the client injected into Controllers (and EventHandlers, Sources and Predicates).
 	client client.Client
+
+	// discoveryClient is used to verify the existence of CRDs on the cluster
+	// in order to determine whether to start/stop a conditional runnable.
+	discoveryClient discovery.DiscoveryClient
 
 	// apiReader is the reader that will make requests to the api server and not the cache.
 	apiReader client.Reader
@@ -217,12 +230,16 @@ func (cm *controllerManager) Add(r Runnable) error {
 		cm.nonLeaderElectionRunnables = append(cm.nonLeaderElectionRunnables, r)
 	} else {
 		shouldStart = cm.startedLeader
-		cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
+		if condRunnable, ok := r.(ConditionalRunnable); ok && condRunnable.GetConditionalOn() != nil {
+			cm.conditionalRunnables = append(cm.conditionalRunnables, r)
+		} else {
+			cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
+		}
 	}
 
 	if shouldStart {
 		// If already started, start the controller
-		cm.startRunnable(r)
+		cm.startRunnable(r, cm.internalStop)
 	}
 
 	return nil
@@ -233,6 +250,9 @@ func (cm *controllerManager) SetFields(i interface{}) error {
 		return err
 	}
 	if _, err := inject.ClientInto(cm.client, i); err != nil {
+		return err
+	}
+	if _, err := inject.DiscoveryClientInto(cm.discoveryClient, i); err != nil {
 		return err
 	}
 	if _, err := inject.APIReaderInto(cm.apiReader, i); err != nil {
@@ -328,6 +348,10 @@ func (cm *controllerManager) GetClient() client.Client {
 	return cm.client
 }
 
+func (cm *controllerManager) GetDiscoveryClient() discovery.DiscoveryClient {
+	return cm.discoveryClient
+}
+
 func (cm *controllerManager) GetScheme() *runtime.Scheme {
 	return cm.scheme
 }
@@ -412,7 +436,7 @@ func (cm *controllerManager) serveMetrics(stop <-chan struct{}) {
 			return err
 		}
 		return nil
-	}))
+	}), cm.internalStop)
 
 	// Shutdown the server when stop is closed
 	<-stop
@@ -447,7 +471,7 @@ func (cm *controllerManager) serveHealthProbes(stop <-chan struct{}) {
 			return err
 		}
 		return nil
-	}))
+	}), cm.internalStop)
 	cm.healthzStarted = true
 	cm.mu.Unlock()
 
@@ -509,6 +533,7 @@ func (cm *controllerManager) Start(stop <-chan struct{}) (err error) {
 			// Treat not having leader election enabled the same as being elected.
 			close(cm.elected)
 			go cm.startLeaderElectionRunnables()
+			go cm.startConditionalRunnables()
 		}
 	}()
 
@@ -597,7 +622,7 @@ func (cm *controllerManager) startNonLeaderElectionRunnables() {
 	for _, c := range cm.nonLeaderElectionRunnables {
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
-		cm.startRunnable(c)
+		cm.startRunnable(c, cm.internalStop)
 	}
 }
 
@@ -611,10 +636,89 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 	for _, c := range cm.leaderElectionRunnables {
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
-		cm.startRunnable(c)
+		cm.startRunnable(c, cm.internalStop)
 	}
 
 	cm.startedLeader = true
+}
+
+func (cm *controllerManager) startConditionalRunnables() {
+	cm.mu.Lock()
+	cm.waitForCache()
+	cm.mu.Unlock()
+
+	for _, r := range cm.conditionalRunnables {
+		go func(c Runnable) {
+			prevInstalled := false
+			curInstalled := false
+			var presentStop chan struct{}
+			for {
+				cm.mu.Lock()
+				select {
+				case <-cm.internalStop:
+					cm.mu.Unlock()
+					return
+				case <-time.After(c.(ConditionalRunnable).GetConditionalWaitTime()):
+					obj := *c.(ConditionalRunnable).GetConditionalOn()
+					gvk, err := apiutil.GVKForObject(obj, cm.scheme)
+					if err != nil {
+						log.Error(err, "could not resolve gvk for conditional runnable obj")
+						break
+					}
+					resources, err := cm.discoveryClient.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
+					if err != nil {
+						curInstalled = false
+					} else {
+						curInstalled = false
+						for _, res := range resources.APIResources {
+							if res.Kind == gvk.Kind {
+								curInstalled = true
+							}
+						}
+					}
+					if !prevInstalled && curInstalled {
+						// Going from not installed -> installed.
+						// Start the runnable.
+						presentStop = make(chan struct{})
+						mergedStop := mergeChan(presentStop, cm.internalStop)
+						cm.startRunnable(c, mergedStop)
+						prevInstalled = true
+					} else if prevInstalled && !curInstalled {
+						// Going from installed -> not installed.
+						// Stop the runnable and remove the obj's informer from the cache.
+						// It's safe to remove the obj's informer because anything that is
+						// using it's informer will no longer work because the obj has been
+						// uninstalled from the cluster.
+						close(presentStop)
+						if err := cm.cache.Remove(obj); err != nil {
+							log.Error(err, "could not remove object from cache")
+						}
+
+						controller, ok := c.(*intctrl.Controller)
+						if !ok {
+							log.Error(errors.New("runnable is not a controller"), "")
+						}
+						controller.Started = false
+
+						prevInstalled = false
+					}
+				}
+				cm.mu.Unlock()
+			}
+		}(r)
+	}
+}
+
+func mergeChan(a, b <-chan struct{}) chan struct{} {
+	out := make(chan struct{})
+	go func() {
+		defer close(out)
+		select {
+		case <-a:
+		case <-b:
+		}
+	}()
+	return out
 }
 
 func (cm *controllerManager) waitForCache() {
@@ -628,7 +732,7 @@ func (cm *controllerManager) waitForCache() {
 	}
 	cm.startRunnable(RunnableFunc(func(stop <-chan struct{}) error {
 		return cm.startCache(stop)
-	}))
+	}), cm.internalStop)
 
 	// Wait for the caches to sync.
 	// TODO(community): Check the return value and write a test
@@ -666,6 +770,7 @@ func (cm *controllerManager) startLeaderElection() (err error) {
 			OnStartedLeading: func(_ context.Context) {
 				close(cm.elected)
 				cm.startLeaderElectionRunnables()
+				cm.startConditionalRunnables()
 			},
 			OnStoppedLeading: cm.onStoppedLeading,
 		},
@@ -684,11 +789,11 @@ func (cm *controllerManager) Elected() <-chan struct{} {
 	return cm.elected
 }
 
-func (cm *controllerManager) startRunnable(r Runnable) {
+func (cm *controllerManager) startRunnable(r Runnable, stop <-chan struct{}) {
 	cm.waitForRunnable.Add(1)
 	go func() {
 		defer cm.waitForRunnable.Done()
-		if err := r.Start(cm.internalStop); err != nil {
+		if err := r.Start(stop); err != nil {
 			cm.errChan <- err
 		}
 	}()

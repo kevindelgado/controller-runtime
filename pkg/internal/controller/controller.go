@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
@@ -45,6 +46,15 @@ type Controller struct {
 
 	// MaxConcurrentReconciles is the maximum number of concurrent Reconciles which can be run. Defaults to 1.
 	MaxConcurrentReconciles int
+
+	// ConditionalOn is the Object that the manager should wait on to appear
+	// in the discovery document to indicate to begin running the controller
+	// (and should stop the informer for this object if it disappears from the discovery doc).
+	ConditionalOn *runtime.Object
+
+	// ConditionalWaitTime is the frequency at which the controller manager should check
+	// the discovery doc for the existence of the CondtionalOn object.
+	ConditionalWaitTime time.Duration
 
 	// Reconciler is a function that can be called at any time with the Name / Namespace of an object and
 	// ensures that the state of the system matches the state specified in the object.
@@ -172,9 +182,14 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 
 		// All the watches have been started, we can reset the local slice.
 		//
-		// We should never hold watches more than necessary, each watch source can hold a backing cache,
+		// We should usually hold watches more than necessary, each watch source can hold a backing cache,
 		// which won't be garbage collected if we hold a reference to it.
-		c.startWatches = nil
+
+		// The exception to this is when the controller is configured as a conditional runnable, in which
+		// case it needs to knowledge of the watches in the event that the controller is restarted.
+		if c.ConditionalOn == nil {
+			c.startWatches = nil
+		}
 
 		if c.JitterPeriod == 0 {
 			c.JitterPeriod = 1 * time.Second
@@ -198,6 +213,20 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 	<-stop
 	c.Log.Info("Stopping workers")
 	return nil
+}
+
+// GetConditionalOn returns the object that startCondtionalRunnables used
+// to determine whether a condtional runnable should be started/stopped (based
+// on the object's existence in the cluster's discovery doc).
+func (c *Controller) GetConditionalOn() *runtime.Object {
+	return c.ConditionalOn
+}
+
+// GetConditionalWaitTime returns the duration for which the
+// controller manager should wait on each iteration when checking the
+// discovery doc for the ConditionalOn object's existence.
+func (c *Controller) GetConditionalWaitTime() time.Duration {
+	return c.ConditionalWaitTime
 }
 
 // worker runs a worker thread that just dequeues items, processes them, and marks them done.

@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
@@ -293,6 +294,13 @@ type LeaderElectionRunnable interface {
 	NeedLeaderElection() bool
 }
 
+// ConditionalRunnable knows if a Runnable needs to be run condtional
+// bsed on the existence of the conditional object on the cluster.
+type ConditionalRunnable interface {
+	GetConditionalOn() *runtime.Object
+	GetConditionalWaitTime() time.Duration
+}
+
 // New returns a new Manager for creating Controllers.
 func New(config *rest.Config, options Options) (Manager, error) {
 	// Initialize a rest.config if none was specified
@@ -370,6 +378,11 @@ func New(config *rest.Config, options Options) (Manager, error) {
 		return nil, err
 	}
 
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
 	stop := make(chan struct{})
 
 	return &controllerManager{
@@ -378,6 +391,7 @@ func New(config *rest.Config, options Options) (Manager, error) {
 		cache:                   cache,
 		fieldIndexes:            cache,
 		client:                  writeObj,
+		discoveryClient:         *discoveryClient,
 		apiReader:               apiReader,
 		recorderProvider:        recorderProvider,
 		resourceLock:            resourceLock,

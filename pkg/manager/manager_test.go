@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"path"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -41,9 +42,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cache/informertest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	intrec "sigs.k8s.io/controller-runtime/pkg/internal/recorder"
 	"sigs.k8s.io/controller-runtime/pkg/leaderelection"
 	fakeleaderelection "sigs.k8s.io/controller-runtime/pkg/leaderelection/fake"
+	"sigs.k8s.io/controller-runtime/pkg/manager/testdata/foo"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/recorder"
@@ -748,6 +751,84 @@ var _ = Describe("manger.Manager", func() {
 				close(done)
 			})
 
+			It("should run manager for conditional runnables when corresponding CRD is not installed, installed, uninstalled and reinstalled", func(done Done) {
+				// initinalize scheme, crdOpts
+				s := runtime.NewScheme()
+				f := &foo.Foo{}
+				s.AddKnownTypeWithName(f.GroupVersionKind(), f)
+				options.Scheme = s
+				crdPath := filepath.Join(".", "testdata")
+				crdOpts := envtest.CRDInstallOptions{
+					Paths: []string{crdPath},
+				}
+
+				// create manager
+				m, err := New(cfg, options)
+				Expect(err).NotTo(HaveOccurred())
+				for _, cb := range callbacks {
+					cb(m)
+				}
+
+				// create conditional runnable, add it to the manager
+				var conditionalOn runtime.Object
+				conditionalOn = &foo.Foo{}
+				runCh := make(chan int)
+				condRunnable := &fakeCondRunnable{
+					conditionalOn: &conditionalOn,
+					runCh:         runCh,
+					startCount:    0,
+				}
+				Expect(m.Add(condRunnable)).NotTo(HaveOccurred())
+
+				// start the manager in a separate go routine
+				mgrStop := make(chan struct{})
+				go func() {
+					defer GinkgoRecover()
+					Expect(m.Start(mgrStop)).NotTo(HaveOccurred())
+					close(runCh)
+				}()
+
+				// run the test go routine to iterate through the situations where
+				// the CRD is
+				// 1) not installed
+				// 2) installed
+				// 3) uninstalled
+				// 4) reinstalled
+				// 5) uninstalled for test cleanup
+				testLoopDone := make(chan struct{})
+				go func() {
+					defer GinkgoRecover()
+					<-m.(*controllerManager).elected
+					for i := 0; i < 5; i++ {
+						if i%2 == 1 {
+							// install CRD
+							crds, err := envtest.InstallCRDs(cfg, crdOpts)
+							Expect(err).NotTo(HaveOccurred())
+							Expect(len(crds)).To(Equal(1))
+						} else if i > 0 {
+							// uninstall CRD
+							err = envtest.UninstallCRDs(cfg, crdOpts)
+							Expect(err).NotTo(HaveOccurred())
+						}
+						select {
+						case <-runCh:
+							// CRD is installed
+							Expect(i % 2).To(Equal(1))
+						case <-time.After(50 * time.Millisecond):
+							// CRD is NOT installed
+							Expect(i % 2).To(Equal(0))
+							condRunnable.noStartCount++
+						}
+					}
+					close(mgrStop)
+					close(testLoopDone)
+				}()
+				<-testLoopDone
+				Expect(condRunnable.startCount).To(Equal(2))
+				Expect(condRunnable.noStartCount).To(Equal(3))
+				close(done)
+			})
+
 		}
 
 		Context("with defaults", func() {
@@ -1375,6 +1456,27 @@ func (*failRec) Start(<-chan struct{}) error {
 
 func (*failRec) InjectClient(client.Client) error {
 	return fmt.Errorf("expected error")
+}
+
+type fakeCondRunnable struct {
+	conditionalOn *runtime.Object
+	startCount    int
+	noStartCount  int
+	runCh         chan int
+}
+
+func (f *fakeCondRunnable) Start(s <-chan struct{}) error {
+	f.startCount++
+	f.runCh <- 1
+	return nil
+}
+
+func (f *fakeCondRunnable) GetConditionalOn() *runtime.Object {
+	return f.conditionalOn
+}
+
+func (f *fakeCondRunnable) GetConditionalWaitTime() time.Duration {
+	return 5 * time.Millisecond
 }
 
 var _ inject.Injector = &injectable{}

@@ -58,6 +58,9 @@ type Informers interface {
 	// of the underlying object.
 	GetInformerForKind(ctx context.Context, gvk schema.GroupVersionKind) (Informer, error)
 
+	// Remove the informer for the given object.
+	Remove(obj runtime.Object) error
+
 	// Start runs all the informers known to this cache until the given channel is closed.
 	// It blocks.
 	Start(stopCh <-chan struct{}) error
