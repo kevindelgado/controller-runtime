@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/internal/controller"
@@ -45,6 +46,16 @@ type Options struct {
 
 	// Log is the logger used for this controller.
 	Log logr.Logger
+
+	// Conditionally is a flag set during controller setup that indicates it should conditionally wait on the
+	// ForObject to appear in the discovery doc before starting the controller. If set,
+	// it will set ConditionalObject to the ForObject being reconciled for in the controller builder.
+	Conditionally bool
+
+	// ConditionalObject is the Object that the manager should wait on to appear
+	// in the discovery document to indicate to begin running the controller
+	// (and should stop the informer for this object if it disappears from the discovery doc).
+	ConditionalObject *runtime.Object
 }
 
 // Controller implements a Kubernetes API.  A Controller manages a work queue fed reconcile.Requests
@@ -117,6 +128,7 @@ func NewUnmanaged(name string, mgr manager.Manager, options Options) (Controller
 		MaxConcurrentReconciles: options.MaxConcurrentReconciles,
 		SetFields:               mgr.SetFields,
 		Name:                    name,
+		ConditionalObject:       options.ConditionalObject,
 		Log:                     options.Log.WithName("controller").WithValues("controller", name),
 	}, nil
 }

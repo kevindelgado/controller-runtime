@@ -263,6 +263,10 @@ func (blder *Builder) doController(r reconcile.Reconciler) error {
 	}
 	ctrlOptions.Log = ctrlOptions.Log.WithValues("reconcilerGroup", gvk.Group, "reconcilerKind", gvk.Kind)
 
+	if ctrlOptions.Conditionally {
+		ctrlOptions.ConditionalObject = &blder.forInput.object
+	}
+
 	// Build the controller and return.
 	blder.ctrl, err = newController(blder.getControllerName(gvk), blder.mgr, ctrlOptions)
 	return err

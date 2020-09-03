@@ -125,6 +125,11 @@ func (c *FakeInformers) Start(stopCh <-chan struct{}) error {
 	return c.Error
 }
 
+// Remove implements Cache
+func (c *FakeInformers) Remove(obj runtime.Object) error {
+	return c.Error
+}
+
 // IndexField implements Cache
 func (c *FakeInformers) IndexField(ctx context.Context, obj runtime.Object, field string, extractValue client.IndexerFunc) error {
 	return nil
