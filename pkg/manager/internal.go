@@ -388,7 +388,7 @@ func (cm *controllerManager) serveMetrics(stop <-chan struct{}) {
 		Handler: mux,
 	}
 	// Run the server
-	cm.startRunnable(RunnableFunc(func(stop <-chan struct{}) error {
+	cm.startRunnable(RunnableFunc(func(stop <-chan struct{}, stopper chan<- struct{}) error {
 		log.Info("starting metrics server", "path", defaultMetricsEndpoint)
 		if err := server.Serve(cm.metricsListener); err != nil && err != http.ErrServerClosed {
 			return err
@@ -397,10 +397,10 @@ func (cm *controllerManager) serveMetrics(stop <-chan struct{}) {
 	}))
 
 	// Shutdown the server when stop is closed
-	<-stop
-	if err := server.Shutdown(cm.shutdownCtx); err != nil {
-		cm.errChan <- err
-	}
+	//<-stop
+	//if err := server.Shutdown(cm.shutdownCtx); err != nil {
+	//	cm.errChan <- err
+	//}
 }
 
 func (cm *controllerManager) serveHealthProbes(stop <-chan struct{}) {
@@ -420,7 +420,7 @@ func (cm *controllerManager) serveHealthProbes(stop <-chan struct{}) {
 		Handler: mux,
 	}
 	// Run server
-	cm.startRunnable(RunnableFunc(func(stop <-chan struct{}) error {
+	cm.startRunnable(RunnableFunc(func(stop <-chan struct{}, stopper chan<- struct{}) error {
 		if err := server.Serve(cm.healthProbeListener); err != nil && err != http.ErrServerClosed {
 			return err
 		}
@@ -599,7 +599,7 @@ func (cm *controllerManager) waitForCache() {
 	if cm.startCache == nil {
 		cm.startCache = cm.cache.Start
 	}
-	cm.startRunnable(RunnableFunc(func(stop <-chan struct{}) error {
+	cm.startRunnable(RunnableFunc(func(stop <-chan struct{}, stopper chan<- struct{}) error {
 		return cm.startCache(stop)
 	}))
 
@@ -660,7 +660,7 @@ func (cm *controllerManager) startRunnable(r Runnable) {
 	cm.waitForRunnable.Add(1)
 	go func() {
 		defer cm.waitForRunnable.Done()
-		if err := r.Start(cm.internalStop); err != nil {
+		if err := r.Start(cm.internalStop, cm.internalStopper); err != nil {
 			cm.errChan <- err
 		}
 	}()

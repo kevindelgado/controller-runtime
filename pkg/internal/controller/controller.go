@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -128,117 +129,118 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 }
 
 // Start implements controller.Controller
-func (c *Controller) Start(stop <-chan struct{}) error {
+func (c *Controller) Start(stop <-chan struct{}, stopper chan<- struct{}) error {
 	c.Log.Info("IN CTRL START")
+
+	removed := make(chan struct{})
+	// This is where we do the wait logic
+	prevInstalled := false
+	curInstalled := false
+	for {
+		select {
+		case <-stop:
+			fmt.Println("STOP FIRED")
+			//close(removed)
+			c.Log.Info("Stopping workers")
+			return nil
+		default:
+		}
+		// TODO(kdelga): next steps
+		// 1. access to config
+		// 2. access to group version
+		// 3. access to dsicovery client with groupversion already imbedded somewhere
+		dc := discovery.NewDiscoveryClientForConfigOrDie(config.GetConfigOrDie())
+		resources, err := dc.ServerResourcesForGroupVersion("batch.tutorial.kubebuilder.io/v1")
+		if err != nil {
+			curInstalled = false
+		} else {
+			curInstalled = false
+			for _, res := range resources.APIResources {
+				if res.Kind == "CronJob" {
+					fmt.Println("FOUND")
+					curInstalled = true
+				}
+			}
+		}
+		if !prevInstalled && curInstalled { // not installed -> installed
+			fmt.Println("START")
+			//start()
+			if err := c.watchStart(removed); err != nil {
+				return err
+			}
+			prevInstalled = true
+		} else if prevInstalled && !curInstalled { // installed -> notinstalled
+			fmt.Println("STOP")
+			close(removed)
+			c.Started = false
+			prevInstalled = false
+		} else {
+			// spin nothing
+			fmt.Println("NO CHANGE")
+			time.Sleep(5 * time.Second)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func (c *Controller) watchStart(stop <-chan struct{}) error {
 	// use an IIFE to get proper lock handling
 	// but lock outside to get proper handling of the queue shutdown
 	c.mu.Lock()
+	if c.Started {
+		return errors.New("controller was started more than once. This is likely to be caused by being added to a manager multiple times")
+	}
 
 	c.Queue = c.MakeQueue()
 	defer c.Queue.ShutDown() // needs to be outside the iife so that we shutdown after the stop channel is closed
+	defer c.mu.Unlock()
 
-	talk := make(chan struct{})
-	// This is where we do the wait logic
-	go func() {
-		prevInstalled := false
-		curInstalled := false
-		i := 0
-		for {
-			// TODO(kdelga): next steps
-			// 1. access to config
-			// 2. access to group version
-			// 3. access to dsicovery client with groupversion already imbedded somewhere
-			dc := discovery.NewDiscoveryClientForConfigOrDie(config.GetConfigOrDie())
-			resources, err := dc.ServerResourcesForGroupVersion("batch.tutorial.kubebuilder.io/v1")
-			if err != nil {
-				curInstalled = false
-			} else {
-				curInstalled = false
-				for _, res := range resources.APIResources {
-					if res.Kind == "CronJob" {
-						fmt.Println("FOUND")
-						curInstalled = true
-					}
-				}
-			}
-			if !prevInstalled && curInstalled { // not installed -> installed
-				fmt.Println("START")
-				//start()
-			} else if prevInstalled && !curInstalled { // installed -> notinstalled
-				fmt.Println("STOP")
-				//stop()
-			} else {
-				// spin nothing
-				fmt.Println("NO CHANGE")
-				time.Sleep(5 * time.Second)
-			}
-			time.Sleep(time.Second)
-			i++
-			if i == 5 {
-				close(talk)
-			}
+	// TODO(pwittrock): Reconsider HandleCrash
+	defer utilruntime.HandleCrash()
+
+	// NB(directxman12): launch the sources *before* trying to wait for the
+	// caches to sync so that they have a chance to register their intendeded
+	// caches.
+	c.Log.Info("start watches length is", "len", len(c.watches))
+	for _, watch := range c.watches {
+		c.Log.Info("Starting EventSource", "source", watch.src)
+		//TODO:NOTE:(kdelga): this is where the error is, and this is what we need to avoid calling
+		// if we don't want to start.
+		if err := watch.src.Start(watch.handler, c.Queue, watch.predicates...); err != nil {
+			fmt.Printf("ctrlr start err = %+v\n", err)
+			return err
 		}
-
-	}()
-
-	err := func() error {
-		defer c.mu.Unlock()
-
-		// TODO(pwittrock): Reconsider HandleCrash
-		defer utilruntime.HandleCrash()
-
-		// NB(directxman12): launch the sources *before* trying to wait for the
-		// caches to sync so that they have a chance to register their intendeded
-		// caches.
-		<-talk
-		c.Log.Info("start watches length is", "len", len(c.watches))
-		for _, watch := range c.watches {
-			c.Log.Info("Starting EventSource", "source", watch.src)
-			//TODO:NOTE:(kdelga): this is where the error is, and this is what we need to avoid calling
-			// if we don't want to start.
-			if err := watch.src.Start(watch.handler, c.Queue, watch.predicates...); err != nil {
-				fmt.Printf("ctrlr start err = %+v\n", err)
-				return err
-			}
-		}
-
-		// Start the SharedIndexInformer factories to begin populating the SharedIndexInformer caches
-		c.Log.Info("Starting Controller")
-
-		for _, watch := range c.watches {
-			syncingSource, ok := watch.src.(source.SyncingSource)
-			if !ok {
-				continue
-			}
-			if err := syncingSource.WaitForSync(stop); err != nil {
-				// This code is unreachable in case of kube watches since WaitForCacheSync will never return an error
-				// Leaving it here because that could happen in the future
-				err := fmt.Errorf("failed to wait for %s caches to sync: %w", c.Name, err)
-				c.Log.Error(err, "Could not wait for Cache to sync")
-				return err
-			}
-		}
-
-		if c.JitterPeriod == 0 {
-			c.JitterPeriod = 1 * time.Second
-		}
-
-		// Launch workers to process resources
-		c.Log.Info("Starting workers", "worker count", c.MaxConcurrentReconciles)
-		for i := 0; i < c.MaxConcurrentReconciles; i++ {
-			// Process work items
-			go wait.Until(c.worker, c.JitterPeriod, stop)
-		}
-
-		c.Started = true
-		return nil
-	}()
-	if err != nil {
-		return err
 	}
 
-	<-stop
-	c.Log.Info("Stopping workers")
+	// Start the SharedIndexInformer factories to begin populating the SharedIndexInformer caches
+	c.Log.Info("Starting Controller")
+
+	//for _, watch := range c.watches {
+	//	syncingSource, ok := watch.src.(source.SyncingSource)
+	//	if !ok {
+	//		continue
+	//	}
+	//	if err := syncingSource.WaitForSync(stop); err != nil {
+	//		// This code is unreachable in case of kube watches since WaitForCacheSync will never return an error
+	//		// Leaving it here because that could happen in the future
+	//		err := fmt.Errorf("failed to wait for %s caches to sync: %w", c.Name, err)
+	//		c.Log.Error(err, "Could not wait for Cache to sync")
+	//		return err
+	//	}
+	//}
+
+	if c.JitterPeriod == 0 {
+		c.JitterPeriod = 1 * time.Second
+	}
+
+	// Launch workers to process resources
+	c.Log.Info("Starting workers", "worker count", c.MaxConcurrentReconciles)
+	for i := 0; i < c.MaxConcurrentReconciles; i++ {
+		// Process work items
+		go wait.Until(c.worker, c.JitterPeriod, stop)
+	}
+
+	c.Started = true
 	return nil
 }
 
