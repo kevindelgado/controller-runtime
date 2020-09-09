@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
@@ -37,6 +38,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/internal/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -613,14 +615,53 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 }
 
 func (cm *controllerManager) startConditionalRunnables() {
+	fmt.Println("STARTING COND RUNS")
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	cm.waitForCache()
+	for _, cmcr := range cm.conditionalRunnables {
+		go func(c ConditionalRunnable) {
 
-	for _, c := range cm.conditionalRunnables {
-		fmt.Printf("cond runnable startc = %+v\n", c)
-		cm.startRunnable(c)
+			prevInstalled := false
+			curInstalled := false
+			for {
+				//select {
+				//case <-cm.internalStop:
+				//	fmt.Println("STOP FIRED")
+				//	fmt.Println("Stopping workers")
+				//	return
+				//default:
+				//}
+				dc := discovery.NewDiscoveryClientForConfigOrDie(config.GetConfigOrDie())
+				resources, err := dc.ServerResourcesForGroupVersion("batch.tutorial.kubebuilder.io/v1")
+				if err != nil {
+					curInstalled = false
+					fmt.Println("NOT INSTALLED")
+					time.Sleep(5 * time.Second)
+				} else {
+					curInstalled = false
+					for _, res := range resources.APIResources {
+						if res.Kind == "CronJob" {
+							curInstalled = true
+						}
+					}
+				}
+				if !prevInstalled && curInstalled { // not installed -> installed
+					fmt.Printf("cond runnable startc = %+v\n", c)
+					cm.startRunnable(c)
+					fmt.Println("installed")
+					prevInstalled = true
+				} else if prevInstalled && !curInstalled { // installed -> not installed
+					fmt.Println("STOP")
+					prevInstalled = false
+				} else {
+					fmt.Println("NO CHANGE")
+					time.Sleep(time.Second)
+				}
+				time.Sleep(time.Second)
+			}
+		}(cmcr)
 	}
 }
 
