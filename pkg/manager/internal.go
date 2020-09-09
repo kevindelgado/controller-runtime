@@ -59,6 +59,17 @@ const (
 
 var log = logf.RuntimeLog.WithName("manager")
 
+type ConditionalRunnable struct {
+	runnable Runnable
+	mainStop chan struct{}
+	curStop  chan struct{}
+	running  bool
+}
+
+func (r ConditionalRunnable) Start(stop <-chan struct{}, stopper chan<- struct{}) error {
+	return r.runnable.Start(stop, stopper)
+}
+
 type controllerManager struct {
 	// config is the rest.config used to talk to the apiserver.  Required.
 	config *rest.Config
@@ -73,6 +84,8 @@ type controllerManager struct {
 	// nonLeaderElectionRunnables is the set of webhook servers that the controllerManager injects deps into and Starts.
 	// These Runnables will not be blocked by lead election.
 	nonLeaderElectionRunnables []Runnable
+
+	conditionalRunnables []ConditionalRunnable
 
 	cache cache.Cache
 
@@ -207,14 +220,21 @@ func (cm *controllerManager) Add(r Runnable) error {
 
 	var shouldStart bool
 
+	//if
+
 	// Add the runnable to the leader election or the non-leaderelection list
 	if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
+		fmt.Printf("mgr/internal.go::Add(), doesn't need LE, shouldStart is %t\n", shouldStart)
 		shouldStart = cm.started
 		cm.nonLeaderElectionRunnables = append(cm.nonLeaderElectionRunnables, r)
 	} else {
 		shouldStart = cm.startedLeader
-		fmt.Printf("mgr/internal.go::Add(), Doesn need LE, shouldStart is %t\n", shouldStart)
-		cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
+		fmt.Printf("mgr/internal.go::Add(), DOES need LE, shouldStart is %t\n", shouldStart)
+		//cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
+		cr := ConditionalRunnable{
+			runnable: r,
+		}
+		cm.conditionalRunnables = append(cm.conditionalRunnables, cr)
 	}
 
 	if shouldStart {
@@ -477,6 +497,8 @@ func (cm *controllerManager) Start(stop <-chan struct{}) (err error) {
 
 	go cm.startNonLeaderElectionRunnables()
 
+	go cm.startConditionalRunnables()
+
 	go func() {
 		if cm.resourceLock != nil {
 			err := cm.startLeaderElection()
@@ -588,6 +610,18 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 	}
 
 	cm.startedLeader = true
+}
+
+func (cm *controllerManager) startConditionalRunnables() {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cm.waitForCache()
+
+	for _, c := range cm.conditionalRunnables {
+		fmt.Printf("cond runnable startc = %+v\n", c)
+		cm.startRunnable(c)
+	}
 }
 
 func (cm *controllerManager) waitForCache() {
