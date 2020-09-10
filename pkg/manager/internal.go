@@ -62,10 +62,12 @@ const (
 var log = logf.RuntimeLog.WithName("manager")
 
 type ConditionalRunnable struct {
-	runnable Runnable
-	mainStop chan struct{}
-	curStop  chan struct{}
-	running  bool
+	runnable     Runnable
+	mainStop     chan struct{}
+	presentStop  chan struct{}
+	installed    bool
+	groupversion string
+	kind         string
 }
 
 func (r ConditionalRunnable) Start(stop <-chan struct{}) error {
@@ -94,6 +96,8 @@ type controllerManager struct {
 	// TODO(directxman12): Provide an escape hatch to get individual indexers
 	// client is the client injected into Controllers (and EventHandlers, Sources and Predicates).
 	client client.Client
+
+	discoveryClient discovery.DiscoveryClient
 
 	// apiReader is the reader that will make requests to the api server and not the cache.
 	apiReader client.Reader
@@ -222,7 +226,9 @@ func (cm *controllerManager) Add(r Runnable) error {
 
 	var shouldStart bool
 
-	//if
+	//if cr, ok := r.(ConditionalRunnable); ok {
+	//	cm.conditionalRunnables = append(cm.conditionalRunnables, cr)
+	//}
 
 	// Add the runnable to the leader election or the non-leaderelection list
 	if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
@@ -234,7 +240,9 @@ func (cm *controllerManager) Add(r Runnable) error {
 		fmt.Printf("mgr/internal.go::Add(), DOES need LE, shouldStart is %t\n", shouldStart)
 		//cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
 		cr := ConditionalRunnable{
-			runnable: r,
+			runnable:     r,
+			groupversion: "batch.tutorial.kubebuilder.io/v1",
+			kind:         "CronJob",
 		}
 		cm.conditionalRunnables = append(cm.conditionalRunnables, cr)
 	}
@@ -615,7 +623,7 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 }
 
 func (cm *controllerManager) startConditionalRunnables() {
-	fmt.Println("STARTING COND RUNS")
+	fmt.Println("STARTING CONDITIONAL RUNNABLES")
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -623,46 +631,44 @@ func (cm *controllerManager) startConditionalRunnables() {
 	for _, cmcr := range cm.conditionalRunnables {
 		go func(c ConditionalRunnable) {
 
-			prevInstalled := false
 			curInstalled := false
-			curStop := make(chan struct{})
 			for {
-				//select {
-				//case <-cm.internalStop:
-				//	fmt.Println("STOP FIRED")
-				//	fmt.Println("Stopping workers")
-				//	return
-				//default:
-				//}
+				select {
+				case <-cm.internalStop:
+					fmt.Println("internalStop fired")
+					return
+				default:
+				}
+				// TODO: add discovery client to the cm
 				dc := discovery.NewDiscoveryClientForConfigOrDie(config.GetConfigOrDie())
-				resources, err := dc.ServerResourcesForGroupVersion("batch.tutorial.kubebuilder.io/v1")
+				resources, err := dc.ServerResourcesForGroupVersion(c.groupversion)
 				if err != nil {
 					curInstalled = false
-					fmt.Println("NOT INSTALLED")
-					time.Sleep(5 * time.Second)
+					time.Sleep(time.Second)
 				} else {
 					curInstalled = false
 					for _, res := range resources.APIResources {
-						if res.Kind == "CronJob" {
+						if res.Kind == c.kind {
 							curInstalled = true
 						}
 					}
 				}
-				if !prevInstalled && curInstalled { // not installed -> installed
-					fmt.Printf("cond runnable startc = %+v\n", c)
+				if !c.installed && curInstalled { // not installed -> installed
+					//c.notifyPresent()
+					fmt.Printf("starting the conditional runnable startc = %+v\n", c)
 					// TODO: Join with cm.internalStop so that internal stop signals also kill the runnable and cache.
-					curStop = make(chan struct{})
-					cm.waitForCache(curStop)
-					cm.startRunnable(c, curStop)
-					fmt.Println("installed")
-					prevInstalled = true
-				} else if prevInstalled && !curInstalled { // installed -> not installed
+					c.presentStop = make(chan struct{})
+					cm.waitForCache(c.presentStop)
+					cm.startRunnable(c, c.presentStop)
+					c.installed = true
+				} else if c.installed && !curInstalled { // installed -> not installed
+					// c.notifyAbsent()
 					// TODO: Nuke the cache/ remove the cronjob informer so it doesn't error
-					fmt.Println("STOP")
-					close(curStop)
-					prevInstalled = false
+					fmt.Println("STOP! CRD uninstalled")
+					close(c.presentStop)
+					c.installed = false
 				} else {
-					fmt.Println("NO CHANGE")
+					// no change to the CRD's installation status
 					time.Sleep(time.Second)
 				}
 				time.Sleep(time.Second)
