@@ -32,10 +32,6 @@ import (
 
 // Options are the arguments for creating a new Controller
 type Options struct {
-	// TODO(kdelga): This is where we give the controller info about the discovery client and kind
-	// Discoverer discoveryclient
-	// kinds to wait on
-
 	// MaxConcurrentReconciles is the maximum number of concurrent Reconciles which can be run. Defaults to 1.
 	MaxConcurrentReconciles int
 
@@ -69,7 +65,7 @@ type Controller interface {
 
 	// Start starts the controller.  Start blocks until stop is closed or a
 	// controller has an error starting.
-	Start(stop <-chan struct{}, stopper chan<- struct{}) error
+	Start(stop <-chan struct{}) error
 }
 
 // New returns a new Controller registered with the Manager.  The Manager will ensure that shared Caches have

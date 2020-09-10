@@ -243,17 +243,17 @@ type Runnable interface {
 	// Start starts running the component.  The component will stop running
 	// when the channel is closed.  Start blocks until the channel is closed or
 	// an error occurs.
-	Start(stop <-chan struct{}, stopper chan<- struct{}) error
+	Start(<-chan struct{}) error
 }
 
 // RunnableFunc implements Runnable using a function.
 // It's very important that the given function block
 // until it's done running.
-type RunnableFunc func(<-chan struct{}, chan<- struct{}) error
+type RunnableFunc func(<-chan struct{}) error
 
 // Start implements Runnable
-func (r RunnableFunc) Start(s <-chan struct{}, sr chan<- struct{}) error {
-	return r(s, sr)
+func (r RunnableFunc) Start(s <-chan struct{}) error {
+	return r(s)
 }
 
 // LeaderElectionRunnable knows if a Runnable needs to be run in the leader election mode.

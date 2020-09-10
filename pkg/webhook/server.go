@@ -145,7 +145,7 @@ func instrumentedHook(path string, hookRaw http.Handler) http.Handler {
 
 // Start runs the server.
 // It will install the webhook related resources depend on the server configuration.
-func (s *Server) Start(stop <-chan struct{}, stopper chan<- struct{}) error {
+func (s *Server) Start(stop <-chan struct{}) error {
 	s.defaultingOnce.Do(s.setDefaults)
 
 	baseHookLog := log.WithName("webhooks")
