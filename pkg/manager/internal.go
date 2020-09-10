@@ -241,7 +241,7 @@ func (cm *controllerManager) Add(r Runnable) error {
 
 	if shouldStart {
 		// If already started, start the controller
-		cm.startRunnable(r)
+		cm.startRunnable(r, cm.internalStop)
 	}
 
 	return nil
@@ -416,7 +416,7 @@ func (cm *controllerManager) serveMetrics(stop <-chan struct{}) {
 			return err
 		}
 		return nil
-	}))
+	}), cm.internalStop)
 
 	// Shutdown the server when stop is closed
 	//<-stop
@@ -447,7 +447,7 @@ func (cm *controllerManager) serveHealthProbes(stop <-chan struct{}) {
 			return err
 		}
 		return nil
-	}))
+	}), cm.internalStop)
 	cm.healthzStarted = true
 	cm.mu.Unlock()
 
@@ -587,13 +587,13 @@ func (cm *controllerManager) startNonLeaderElectionRunnables() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	cm.waitForCache()
+	cm.waitForCache(cm.internalStop)
 
 	// Start the non-leaderelection Runnables after the cache has synced
 	for _, c := range cm.nonLeaderElectionRunnables {
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
-		cm.startRunnable(c)
+		cm.startRunnable(c, cm.internalStop)
 	}
 }
 
@@ -601,14 +601,14 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	cm.waitForCache()
+	cm.waitForCache(cm.internalStop)
 
 	// Start the leader election Runnables after the cache has synced
 	for _, c := range cm.leaderElectionRunnables {
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
 		fmt.Printf("LEADER RUNNABLES START c= %+v\n", c)
-		cm.startRunnable(c)
+		cm.startRunnable(c, cm.internalStop)
 	}
 
 	cm.startedLeader = true
@@ -619,12 +619,13 @@ func (cm *controllerManager) startConditionalRunnables() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	cm.waitForCache()
+	cm.waitForCache(cm.internalStop)
 	for _, cmcr := range cm.conditionalRunnables {
 		go func(c ConditionalRunnable) {
 
 			prevInstalled := false
 			curInstalled := false
+			curStop := make(chan struct{})
 			for {
 				//select {
 				//case <-cm.internalStop:
@@ -649,11 +650,16 @@ func (cm *controllerManager) startConditionalRunnables() {
 				}
 				if !prevInstalled && curInstalled { // not installed -> installed
 					fmt.Printf("cond runnable startc = %+v\n", c)
-					cm.startRunnable(c)
+					// TODO: Join with cm.internalStop so that internal stop signals also kill the runnable and cache.
+					curStop = make(chan struct{})
+					cm.waitForCache(curStop)
+					cm.startRunnable(c, curStop)
 					fmt.Println("installed")
 					prevInstalled = true
 				} else if prevInstalled && !curInstalled { // installed -> not installed
+					// TODO: Nuke the cache/ remove the cronjob informer so it doesn't error
 					fmt.Println("STOP")
+					close(curStop)
 					prevInstalled = false
 				} else {
 					fmt.Println("NO CHANGE")
@@ -665,7 +671,7 @@ func (cm *controllerManager) startConditionalRunnables() {
 	}
 }
 
-func (cm *controllerManager) waitForCache() {
+func (cm *controllerManager) waitForCache(stop <-chan struct{}) {
 	if cm.started {
 		return
 	}
@@ -676,11 +682,11 @@ func (cm *controllerManager) waitForCache() {
 	}
 	cm.startRunnable(RunnableFunc(func(stop <-chan struct{}) error {
 		return cm.startCache(stop)
-	}))
+	}), stop)
 
 	// Wait for the caches to sync.
 	// TODO(community): Check the return value and write a test
-	cm.cache.WaitForCacheSync(cm.internalStop)
+	cm.cache.WaitForCacheSync(stop)
 	// TODO: This should be the return value of cm.cache.WaitForCacheSync but we abuse
 	// cm.started as check if we already started the cache so it must always become true.
 	// Making sure that the cache doesn't get started twice is needed to not get a "close
@@ -731,11 +737,12 @@ func (cm *controllerManager) Elected() <-chan struct{} {
 	return cm.elected
 }
 
-func (cm *controllerManager) startRunnable(r Runnable) {
+//TODO(kdelga): instead of passing in channels as args, caller should join the channels before calling.
+func (cm *controllerManager) startRunnable(r Runnable, stop <-chan struct{}) {
 	cm.waitForRunnable.Add(1)
 	go func() {
 		defer cm.waitForRunnable.Done()
-		if err := r.Start(cm.internalStop); err != nil {
+		if err := r.Start(stop); err != nil {
 			cm.errChan <- err
 		}
 	}()
