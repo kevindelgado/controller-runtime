@@ -627,7 +627,8 @@ func (cm *controllerManager) startConditionalRunnables() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	cm.waitForCache(cm.internalStop)
+	// TODO: add discovery client to the cm
+	dc := discovery.NewDiscoveryClientForConfigOrDie(config.GetConfigOrDie())
 	for _, cmcr := range cm.conditionalRunnables {
 		go func(c ConditionalRunnable) {
 
@@ -639,8 +640,6 @@ func (cm *controllerManager) startConditionalRunnables() {
 					return
 				default:
 				}
-				// TODO: add discovery client to the cm
-				dc := discovery.NewDiscoveryClientForConfigOrDie(config.GetConfigOrDie())
 				resources, err := dc.ServerResourcesForGroupVersion(c.groupversion)
 				if err != nil {
 					curInstalled = false
@@ -658,6 +657,7 @@ func (cm *controllerManager) startConditionalRunnables() {
 					fmt.Printf("starting the conditional runnable startc = %+v\n", c)
 					// TODO: Join with cm.internalStop so that internal stop signals also kill the runnable and cache.
 					c.presentStop = make(chan struct{})
+					fmt.Println("waiting for cond cache")
 					cm.waitForCache(c.presentStop)
 					cm.startRunnable(c, c.presentStop)
 					c.installed = true
@@ -678,7 +678,9 @@ func (cm *controllerManager) startConditionalRunnables() {
 }
 
 func (cm *controllerManager) waitForCache(stop <-chan struct{}) {
+	fmt.Println("wait for cache called")
 	if cm.started {
+		fmt.Println("cache started break immediately")
 		return
 	}
 
