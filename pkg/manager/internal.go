@@ -93,6 +93,8 @@ type controllerManager struct {
 
 	cache cache.Cache
 
+	obj runtime.Object
+
 	// TODO(directxman12): Provide an escape hatch to get individual indexers
 	// client is the client injected into Controllers (and EventHandlers, Sources and Predicates).
 	client client.Client
@@ -209,6 +211,14 @@ type controllerManager struct {
 	// after the gracefulShutdownTimeout ended. It must not be accessed before internalStop
 	// is closed because it will be nil.
 	shutdownCtx context.Context
+}
+
+func (cm *controllerManager) SetObj(obj runtime.Object) {
+	cm.obj = obj
+}
+
+func (cm *controllerManager) GetObj() runtime.Object {
+	return cm.obj
 }
 
 // Add sets dependencies on i, and adds it to the list of Runnables to start.
@@ -627,6 +637,8 @@ func (cm *controllerManager) startConditionalRunnables() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	cm.waitForCache(cm.internalStop)
+
 	// TODO: add discovery client to the cm
 	dc := discovery.NewDiscoveryClientForConfigOrDie(config.GetConfigOrDie())
 	for _, cmcr := range cm.conditionalRunnables {
@@ -658,7 +670,6 @@ func (cm *controllerManager) startConditionalRunnables() {
 					// TODO: Join with cm.internalStop so that internal stop signals also kill the runnable and cache.
 					c.presentStop = make(chan struct{})
 					fmt.Println("waiting for cond cache")
-					cm.waitForCache(c.presentStop)
 					cm.startRunnable(c, c.presentStop)
 					c.installed = true
 				} else if c.installed && !curInstalled { // installed -> not installed
@@ -666,6 +677,7 @@ func (cm *controllerManager) startConditionalRunnables() {
 					// TODO: Nuke the cache/ remove the cronjob informer so it doesn't error
 					fmt.Println("STOP! CRD uninstalled")
 					close(c.presentStop)
+					cm.cache.Remove(cm.obj)
 					c.installed = false
 				} else {
 					// no change to the CRD's installation status

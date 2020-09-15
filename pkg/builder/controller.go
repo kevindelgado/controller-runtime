@@ -40,6 +40,7 @@ var getGvk = apiutil.GVKForObject
 // Builder builds a Controller.
 type Builder struct {
 	forInput         ForInput
+	forObj           runtime.Object
 	ownsInput        []OwnsInput
 	watchesInput     []WatchesInput
 	mgr              manager.Manager
@@ -83,6 +84,7 @@ func (blder *Builder) For(object runtime.Object, opts ...ForOption) *Builder {
 	}
 
 	blder.forInput = input
+	blder.forObj = object
 	return blder
 }
 
@@ -181,6 +183,8 @@ func (blder *Builder) Build(r reconcile.Reconciler) (controller.Controller, erro
 
 	// Set the Config
 	blder.loadRestConfig()
+
+	blder.mgr.SetObj(blder.forObj)
 
 	// Set the ControllerManagedBy
 	if err := blder.doController(r); err != nil {
