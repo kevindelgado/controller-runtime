@@ -184,7 +184,7 @@ func (blder *Builder) Build(r reconcile.Reconciler) (controller.Controller, erro
 	// Set the Config
 	blder.loadRestConfig()
 
-	blder.mgr.SetObj(blder.forObj)
+	//blder.mgr.SetObj(blder.forObj)
 
 	// Set the ControllerManagedBy
 	if err := blder.doController(r); err != nil {
@@ -271,6 +271,10 @@ func (blder *Builder) doController(r reconcile.Reconciler) error {
 	ctrlOptions.Log = ctrlOptions.Log.WithValues("reconcilerGroup", gvk.Group, "reconcilerKind", gvk.Kind)
 
 	fmt.Println("getting ctrl options conditionally", ctrlOptions.Conditionally)
+
+	if ctrlOptions.Conditionally {
+		blder.mgr.SetObj(blder.forInput.object)
+	}
 
 	// Build the controller and return.
 	blder.ctrl, err = newController(blder.getControllerName(gvk), blder.mgr, ctrlOptions)

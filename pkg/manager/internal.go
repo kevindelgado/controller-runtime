@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/internal/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -277,6 +276,9 @@ func (cm *controllerManager) SetFields(i interface{}) error {
 	if _, err := inject.ClientInto(cm.client, i); err != nil {
 		return err
 	}
+	if _, err := inject.DiscoveryClientInto(cm.discoveryClient, i); err != nil {
+		return err
+	}
 	if _, err := inject.APIReaderInto(cm.apiReader, i); err != nil {
 		return err
 	}
@@ -368,6 +370,10 @@ func (cm *controllerManager) GetConfig() *rest.Config {
 
 func (cm *controllerManager) GetClient() client.Client {
 	return cm.client
+}
+
+func (cm *controllerManager) GetDiscoveryClient() discovery.DiscoveryClient {
+	return cm.discoveryClient
 }
 
 func (cm *controllerManager) GetScheme() *runtime.Scheme {
@@ -644,7 +650,7 @@ func (cm *controllerManager) startConditionalRunnables() {
 	cm.waitForCache(cm.internalStop)
 
 	// TODO: add discovery client to the cm
-	dc := discovery.NewDiscoveryClientForConfigOrDie(config.GetConfigOrDie())
+	//dc := discovery.NewDiscoveryClientForConfigOrDie(config.GetConfigOrDie())
 	for _, r := range cm.conditionalRunnables {
 		fmt.Println("COND Runnable")
 		//cond, _ := r.(ConditionalRunnable)
@@ -664,7 +670,7 @@ func (cm *controllerManager) startConditionalRunnables() {
 					//TODO(kdelga): don't panic
 					panic(err)
 				}
-				resources, err := dc.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
+				resources, err := cm.discoveryClient.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
 				if err != nil {
 					curInstalled = false
 					time.Sleep(time.Second)

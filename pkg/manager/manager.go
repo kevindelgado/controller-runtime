@@ -26,6 +26,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
@@ -347,6 +348,11 @@ func New(config *rest.Config, options Options) (Manager, error) {
 		return nil, err
 	}
 
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
 	stop := make(chan struct{})
 
 	return &controllerManager{
@@ -355,6 +361,7 @@ func New(config *rest.Config, options Options) (Manager, error) {
 		cache:                   cache,
 		fieldIndexes:            cache,
 		client:                  writeObj,
+		discoveryClient:         *discoveryClient,
 		apiReader:               apiReader,
 		recorderProvider:        recorderProvider,
 		resourceLock:            resourceLock,

@@ -20,6 +20,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -81,6 +82,17 @@ type Client interface {
 func ClientInto(client client.Client, i interface{}) (bool, error) {
 	if s, ok := i.(Client); ok {
 		return true, s.InjectClient(client)
+	}
+	return false, nil
+}
+
+type DiscoveryClient interface {
+	InjectDiscoveryClient(discovery.DiscoveryClient) error
+}
+
+func DiscoveryClientInto(dc discovery.DiscoveryClient, i interface{}) (bool, error) {
+	if s, ok := i.(DiscoveryClient); ok {
+		return true, s.InjectDiscoveryClient(dc)
 	}
 	return false, nil
 }
