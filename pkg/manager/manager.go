@@ -266,7 +266,6 @@ type LeaderElectionRunnable interface {
 
 type ConditionalRunnable interface {
 	GetConditionalObject() *runtime.Object
-	//RunConditionally() bool
 }
 
 // New returns a new Manager for creating Controllers.

@@ -47,7 +47,14 @@ type Options struct {
 	// Log is the logger used for this controller.
 	Log logr.Logger
 
-	Conditionally     bool
+	// Conditionally is a flag set during controller setup that indicates it should conditionally wait on the
+	// ForObject to appear in the discovery doc before starting the controller. If set,
+	// it will set ConditionalObject to the ForObject being reconciled for in the controller builder.
+	Conditionally bool
+
+	// ConditionalObject is the Object that the manager should wait on to appear
+	// in the discovery document to indicate to begin running the controller
+	// (and should stop the informer for this object if it disappears from the discovery doc).
 	ConditionalObject *runtime.Object
 }
 

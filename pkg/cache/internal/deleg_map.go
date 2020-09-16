@@ -18,7 +18,6 @@ package internal
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -90,9 +89,7 @@ func (m *InformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj
 		return m.unstructured.Get(ctx, gvk, obj)
 	}
 
-	is, entry, err := m.structured.Get(ctx, gvk, obj)
-	fmt.Printf("deleg_map.go:94 inside informersMap.Get calling strucutred.get on gvk = %+v, err is: %+v\n", gvk, err)
-	return is, entry, err
+	return m.structured.Get(ctx, gvk, obj)
 }
 
 // Remove will remove an new Informer from the InformersMap and stop it if it exists.

@@ -44,8 +44,14 @@ type Controller struct {
 	// MaxConcurrentReconciles is the maximum number of concurrent Reconciles which can be run. Defaults to 1.
 	MaxConcurrentReconciles int
 
+	// Conditionally is a flag set during controller setup that indicates it should conditionally wait on the
+	// ForObject to appear in the discovery doc before starting the controller. If set,
+	// it will set ConditionalObject to the ForObject being reconciled for in the controller builder.
 	Conditionally bool
 
+	// ConditionalObject is the Object that the manager should wait on to appear
+	// in the discovery document to indicate to begin running the controller
+	// (and should stop the informer for this object if it disappears from the discovery doc).
 	ConditionalObject *runtime.Object
 
 	// Reconciler is a function that can be called at any time with the Name / Namespace of an object and
@@ -186,10 +192,6 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 	c.Log.Info("Stopping workers")
 	return nil
 }
-
-//func (c *Controller) RunConditionally() bool {
-//	return c.Conditionally
-//}
 
 func (c *Controller) GetConditionalObject() *runtime.Object {
 	return c.ConditionalObject

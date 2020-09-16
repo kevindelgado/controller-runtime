@@ -40,7 +40,6 @@ var getGvk = apiutil.GVKForObject
 // Builder builds a Controller.
 type Builder struct {
 	forInput         ForInput
-	forObj           runtime.Object
 	ownsInput        []OwnsInput
 	watchesInput     []WatchesInput
 	mgr              manager.Manager
@@ -84,7 +83,6 @@ func (blder *Builder) For(object runtime.Object, opts ...ForOption) *Builder {
 	}
 
 	blder.forInput = input
-	blder.forObj = object
 	return blder
 }
 
@@ -184,8 +182,6 @@ func (blder *Builder) Build(r reconcile.Reconciler) (controller.Controller, erro
 	// Set the Config
 	blder.loadRestConfig()
 
-	//blder.mgr.SetObj(blder.forObj)
-
 	// Set the ControllerManagedBy
 	if err := blder.doController(r); err != nil {
 		return nil, err
@@ -256,10 +252,7 @@ func (blder *Builder) doController(r reconcile.Reconciler) error {
 
 	// Retrieve the GVK from the object we're reconciling
 	// to prepopulate logger information, and to optionally generate a default name.
-	// NOTE(kdelga): interesting, does this return an err if not installed yet? TODO: add a print stmnt to check
-	// No it doesn't
 	gvk, err := getGvk(blder.forInput.object, blder.mgr.GetScheme())
-	fmt.Printf("getting the gvk, err is: %v\n", err)
 	if err != nil {
 		return err
 	}
@@ -270,16 +263,11 @@ func (blder *Builder) doController(r reconcile.Reconciler) error {
 	}
 	ctrlOptions.Log = ctrlOptions.Log.WithValues("reconcilerGroup", gvk.Group, "reconcilerKind", gvk.Kind)
 
-	fmt.Println("getting ctrl options conditionally", ctrlOptions.Conditionally)
-
 	if ctrlOptions.Conditionally {
 		ctrlOptions.ConditionalObject = &blder.forInput.object
 	}
 
 	// Build the controller and return.
 	blder.ctrl, err = newController(blder.getControllerName(gvk), blder.mgr, ctrlOptions)
-	//fmt.Println("bldr ctrl options cond", blder.ctrl.Conditionally)
-	fmt.Printf("newController err is: %v\n", err)
-	//NOTE(kdelga): Also nil, meaning doController does not return an error
 	return err
 }

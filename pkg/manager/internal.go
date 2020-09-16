@@ -61,19 +61,6 @@ const (
 
 var log = logf.RuntimeLog.WithName("manager")
 
-// type ConditionalRunnable struct {
-// 	runnable     Runnable
-// 	mainStop     chan struct{}
-// 	presentStop  chan struct{}
-// 	installed    bool
-// 	groupversion string
-// 	kind         string
-// }
-
-//func (r ConditionalRunnable) Start(stop <-chan struct{struct@}) error {
-//	return r.runnable.Start(stop)
-//}
-
 type controllerManager struct {
 	// config is the rest.config used to talk to the apiserver.  Required.
 	config *rest.Config
@@ -85,10 +72,14 @@ type controllerManager struct {
 	// leaderElectionRunnables is the set of Controllers that the controllerManager injects deps into and Starts.
 	// These Runnables are managed by lead election.
 	leaderElectionRunnables []Runnable
+
 	// nonLeaderElectionRunnables is the set of webhook servers that the controllerManager injects deps into and Starts.
 	// These Runnables will not be blocked by lead election.
 	nonLeaderElectionRunnables []Runnable
 
+	// conditionalRunnables are the set of Controllers that only to be ran when the resource they are controlling
+	// has been installed on the cluster and will stop and restart the controller if the resource is
+	// uninstalled or reinstalled.
 	conditionalRunnables []Runnable
 
 	cache cache.Cache
@@ -97,6 +88,8 @@ type controllerManager struct {
 	// client is the client injected into Controllers (and EventHandlers, Sources and Predicates).
 	client client.Client
 
+	// discoveryClient is used to verify the existence of CRDs on the cluster
+	// in order to determine whether to start/stop a conditional runnable.
 	discoveryClient discovery.DiscoveryClient
 
 	// apiReader is the reader that will make requests to the api server and not the cache.
@@ -226,29 +219,17 @@ func (cm *controllerManager) Add(r Runnable) error {
 
 	var shouldStart bool
 
-	//if cr, ok := r.(ConditionalRunnable); ok {
-	//	cm.conditionalRunnables = append(cm.conditionalRunnables, cr)
-	//}
-
 	// Add the runnable to the leader election or the non-leaderelection list
 	if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
-		fmt.Printf("mgr/internal.go::Add(), doesn't need LE, shouldStart is %t\n", shouldStart)
 		shouldStart = cm.started
 		cm.nonLeaderElectionRunnables = append(cm.nonLeaderElectionRunnables, r)
 	} else {
 		shouldStart = cm.startedLeader
-		fmt.Printf("mgr/internal.go::Add(), DOES need LE, shouldStart is %t\n", shouldStart)
 		if condRunnable, ok := r.(ConditionalRunnable); ok && condRunnable.GetConditionalObject() != nil {
 			cm.conditionalRunnables = append(cm.conditionalRunnables, r)
 		} else {
 			cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
 		}
-		// cr := ConditionalRunnable{
-		// 	runnable:     r,
-		// 	groupversion: "batch.tutorial.kubebuilder.io/v1",
-		// 	kind:         "CronJob",
-		// }
-		// cm.conditionalRunnables = append(cm.conditionalRunnables, cr)
 	}
 
 	if shouldStart {
@@ -438,10 +419,6 @@ func (cm *controllerManager) serveMetrics(stop <-chan struct{}) {
 	}), cm.internalStop)
 
 	// Shutdown the server when stop is closed
-	//<-stop
-	//if err := server.Shutdown(cm.shutdownCtx); err != nil {
-	//	cm.errChan <- err
-	//}
 }
 
 func (cm *controllerManager) serveHealthProbes(stop <-chan struct{}) {
@@ -605,7 +582,7 @@ func (cm *controllerManager) startNonLeaderElectionRunnables() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	cm.waitForCache(cm.internalStop)
+	cm.waitForCache()
 
 	// Start the non-leaderelection Runnables after the cache has synced
 	for _, c := range cm.nonLeaderElectionRunnables {
@@ -619,13 +596,12 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	cm.waitForCache(cm.internalStop)
+	cm.waitForCache()
 
 	// Start the leader election Runnables after the cache has synced
 	for _, c := range cm.leaderElectionRunnables {
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
-		fmt.Printf("LEADER RUNNABLES START c= %+v\n", c)
 		cm.startRunnable(c, cm.internalStop)
 	}
 
@@ -633,34 +609,27 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 }
 
 func (cm *controllerManager) startConditionalRunnables() {
-	fmt.Println("STARTING CONDITIONAL RUNNABLES")
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	cm.waitForCache(cm.internalStop)
+	cm.waitForCache()
 
-	// TODO: add discovery client to the cm
-	//dc := discovery.NewDiscoveryClientForConfigOrDie(config.GetConfigOrDie())
 	for _, r := range cm.conditionalRunnables {
-		fmt.Println("COND Runnable")
-		//cond, _ := r.(ConditionalRunnable)
 		go func(c Runnable) {
 			prevInstalled := false
 			curInstalled := false
-			var mergedStop chan struct{}
 			var presentStop chan struct{}
 			for {
 				select {
 				case <-cm.internalStop:
-					fmt.Println("internalStop fired")
 					return
 				default:
 				}
 				obj := *r.(ConditionalRunnable).GetConditionalObject()
 				gvk, err := apiutil.GVKForObject(obj, cm.scheme)
 				if err != nil {
-					//TODO(kdelga): don't panic
-					panic(err)
+					log.Error(err, "could not resolve gvk for conditional runnable obj")
+					break
 				}
 				resources, err := cm.discoveryClient.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
 				if err != nil {
@@ -673,19 +642,16 @@ func (cm *controllerManager) startConditionalRunnables() {
 						}
 					}
 				}
-				if !prevInstalled && curInstalled { // not installed -> installed
-					//c.notifyPresent()
-					fmt.Printf("starting the conditional runnable startc = %+v\n", c)
-					// TODO: Join with cm.internalStop so that internal stop signals also kill the runnable and cache.
+				if !prevInstalled && curInstalled {
+					// Going from not installed -> installed.
+					// Start the runnable.
 					presentStop = make(chan struct{})
-					mergedStop = mergeChan(presentStop, cm.internalStop)
-					fmt.Println("waiting for cond cache")
+					mergedStop := mergeChan(presentStop, cm.internalStop)
 					cm.startRunnable(c, mergedStop)
 					prevInstalled = true
-				} else if prevInstalled && !curInstalled { // installed -> not installed
-					// c.notifyAbsent()
-					// TODO: Nuke the cache/ remove the cronjob informer so it doesn't error
-					fmt.Println("STOP! CRD uninstalled")
+				} else if prevInstalled && !curInstalled {
+					// Going from installed -> not installed.
+					// Stop the runnable and remove the obj's informer from the cache.
 					close(presentStop)
 					cm.cache.Remove(obj)
 					prevInstalled = false
@@ -705,14 +671,11 @@ func mergeChan(a, b <-chan struct{}) chan struct{} {
 		case <-b:
 		}
 	}()
-
 	return out
 }
 
-func (cm *controllerManager) waitForCache(stop <-chan struct{}) {
-	fmt.Println("wait for cache called")
+func (cm *controllerManager) waitForCache() {
 	if cm.started {
-		fmt.Println("cache started break immediately")
 		return
 	}
 
@@ -722,11 +685,11 @@ func (cm *controllerManager) waitForCache(stop <-chan struct{}) {
 	}
 	cm.startRunnable(RunnableFunc(func(stop <-chan struct{}) error {
 		return cm.startCache(stop)
-	}), stop)
+	}), cm.internalStop)
 
 	// Wait for the caches to sync.
 	// TODO(community): Check the return value and write a test
-	cm.cache.WaitForCacheSync(stop)
+	cm.cache.WaitForCacheSync(cm.internalStop)
 	// TODO: This should be the return value of cm.cache.WaitForCacheSync but we abuse
 	// cm.started as check if we already started the cache so it must always become true.
 	// Making sure that the cache doesn't get started twice is needed to not get a "close
@@ -777,7 +740,6 @@ func (cm *controllerManager) Elected() <-chan struct{} {
 	return cm.elected
 }
 
-//TODO(kdelga): instead of passing in channels as args, caller should join the channels before calling.
 func (cm *controllerManager) startRunnable(r Runnable, stop <-chan struct{}) {
 	cm.waitForRunnable.Add(1)
 	go func() {
