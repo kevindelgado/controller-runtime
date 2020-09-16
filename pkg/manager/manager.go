@@ -116,9 +116,6 @@ type Manager interface {
 
 	// GetLogger returns this manager's logger.
 	GetLogger() logr.Logger
-
-	GetObj() runtime.Object
-	SetObj(runtime.Object)
 }
 
 // Options are the arguments for creating a new Manager
@@ -268,8 +265,8 @@ type LeaderElectionRunnable interface {
 }
 
 type ConditionalRunnable interface {
-	//ConditionalObject() runtime.Object
-	RunConditionally() bool
+	GetConditionalObject() *runtime.Object
+	//RunConditionally() bool
 }
 
 // New returns a new Manager for creating Controllers.

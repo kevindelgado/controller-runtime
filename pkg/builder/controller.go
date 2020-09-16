@@ -273,7 +273,7 @@ func (blder *Builder) doController(r reconcile.Reconciler) error {
 	fmt.Println("getting ctrl options conditionally", ctrlOptions.Conditionally)
 
 	if ctrlOptions.Conditionally {
-		blder.mgr.SetObj(blder.forInput.object)
+		ctrlOptions.ConditionalObject = &blder.forInput.object
 	}
 
 	// Build the controller and return.

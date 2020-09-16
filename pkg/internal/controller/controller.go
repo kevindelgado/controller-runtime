@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
@@ -44,6 +45,8 @@ type Controller struct {
 	MaxConcurrentReconciles int
 
 	Conditionally bool
+
+	ConditionalObject *runtime.Object
 
 	// Reconciler is a function that can be called at any time with the Name / Namespace of an object and
 	// ensures that the state of the system matches the state specified in the object.
@@ -184,8 +187,12 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 	return nil
 }
 
-func (c *Controller) RunConditionally() bool {
-	return c.Conditionally
+//func (c *Controller) RunConditionally() bool {
+//	return c.Conditionally
+//}
+
+func (c *Controller) GetConditionalObject() *runtime.Object {
+	return c.ConditionalObject
 }
 
 // worker runs a worker thread that just dequeues items, processes them, and marks them done.

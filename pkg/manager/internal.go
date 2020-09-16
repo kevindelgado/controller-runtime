@@ -93,8 +93,6 @@ type controllerManager struct {
 
 	cache cache.Cache
 
-	obj runtime.Object
-
 	// TODO(directxman12): Provide an escape hatch to get individual indexers
 	// client is the client injected into Controllers (and EventHandlers, Sources and Predicates).
 	client client.Client
@@ -213,14 +211,6 @@ type controllerManager struct {
 	shutdownCtx context.Context
 }
 
-func (cm *controllerManager) SetObj(obj runtime.Object) {
-	cm.obj = obj
-}
-
-func (cm *controllerManager) GetObj() runtime.Object {
-	return cm.obj
-}
-
 // Add sets dependencies on i, and adds it to the list of Runnables to start.
 func (cm *controllerManager) Add(r Runnable) error {
 	cm.mu.Lock()
@@ -248,7 +238,7 @@ func (cm *controllerManager) Add(r Runnable) error {
 	} else {
 		shouldStart = cm.startedLeader
 		fmt.Printf("mgr/internal.go::Add(), DOES need LE, shouldStart is %t\n", shouldStart)
-		if condRunnable, ok := r.(ConditionalRunnable); ok && condRunnable.RunConditionally() {
+		if condRunnable, ok := r.(ConditionalRunnable); ok && condRunnable.GetConditionalObject() != nil {
 			cm.conditionalRunnables = append(cm.conditionalRunnables, r)
 		} else {
 			cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
@@ -657,6 +647,7 @@ func (cm *controllerManager) startConditionalRunnables() {
 		go func(c Runnable) {
 			prevInstalled := false
 			curInstalled := false
+			var mergedStop chan struct{}
 			var presentStop chan struct{}
 			for {
 				select {
@@ -665,7 +656,8 @@ func (cm *controllerManager) startConditionalRunnables() {
 					return
 				default:
 				}
-				gvk, err := apiutil.GVKForObject(cm.obj, cm.scheme)
+				obj := *r.(ConditionalRunnable).GetConditionalObject()
+				gvk, err := apiutil.GVKForObject(obj, cm.scheme)
 				if err != nil {
 					//TODO(kdelga): don't panic
 					panic(err)
@@ -673,7 +665,6 @@ func (cm *controllerManager) startConditionalRunnables() {
 				resources, err := cm.discoveryClient.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
 				if err != nil {
 					curInstalled = false
-					time.Sleep(time.Second)
 				} else {
 					curInstalled = false
 					for _, res := range resources.APIResources {
@@ -687,24 +678,35 @@ func (cm *controllerManager) startConditionalRunnables() {
 					fmt.Printf("starting the conditional runnable startc = %+v\n", c)
 					// TODO: Join with cm.internalStop so that internal stop signals also kill the runnable and cache.
 					presentStop = make(chan struct{})
+					mergedStop = mergeChan(presentStop, cm.internalStop)
 					fmt.Println("waiting for cond cache")
-					cm.startRunnable(c, presentStop)
+					cm.startRunnable(c, mergedStop)
 					prevInstalled = true
 				} else if prevInstalled && !curInstalled { // installed -> not installed
 					// c.notifyAbsent()
 					// TODO: Nuke the cache/ remove the cronjob informer so it doesn't error
 					fmt.Println("STOP! CRD uninstalled")
 					close(presentStop)
-					cm.cache.Remove(cm.obj)
+					cm.cache.Remove(obj)
 					prevInstalled = false
-				} else {
-					// no change to the CRD's installation status
-					time.Sleep(time.Second)
 				}
-				time.Sleep(time.Second)
+				time.Sleep(100 * time.Microsecond)
 			}
 		}(r)
 	}
+}
+
+func mergeChan(a, b <-chan struct{}) chan struct{} {
+	out := make(chan struct{})
+	go func() {
+		defer close(out)
+		select {
+		case <-a:
+		case <-b:
+		}
+	}()
+
+	return out
 }
 
 func (cm *controllerManager) waitForCache(stop <-chan struct{}) {

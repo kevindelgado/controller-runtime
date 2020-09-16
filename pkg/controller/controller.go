@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/internal/controller"
@@ -46,7 +47,8 @@ type Options struct {
 	// Log is the logger used for this controller.
 	Log logr.Logger
 
-	Conditionally bool
+	Conditionally     bool
+	ConditionalObject *runtime.Object
 }
 
 // Controller implements a Kubernetes API.  A Controller manages a work queue fed reconcile.Requests
@@ -119,7 +121,7 @@ func NewUnmanaged(name string, mgr manager.Manager, options Options) (Controller
 		MaxConcurrentReconciles: options.MaxConcurrentReconciles,
 		SetFields:               mgr.SetFields,
 		Name:                    name,
-		Conditionally:           options.Conditionally,
+		ConditionalObject:       options.ConditionalObject,
 		Log:                     options.Log.WithName("controller").WithValues("controller", name),
 	}, nil
 }
