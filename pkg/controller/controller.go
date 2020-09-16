@@ -45,6 +45,8 @@ type Options struct {
 
 	// Log is the logger used for this controller.
 	Log logr.Logger
+
+	Conditionally bool
 }
 
 // Controller implements a Kubernetes API.  A Controller manages a work queue fed reconcile.Requests
@@ -117,6 +119,7 @@ func NewUnmanaged(name string, mgr manager.Manager, options Options) (Controller
 		MaxConcurrentReconciles: options.MaxConcurrentReconciles,
 		SetFields:               mgr.SetFields,
 		Name:                    name,
+		Conditionally:           options.Conditionally,
 		Log:                     options.Log.WithName("controller").WithValues("controller", name),
 	}, nil
 }

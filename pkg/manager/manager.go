@@ -266,6 +266,11 @@ type LeaderElectionRunnable interface {
 	NeedLeaderElection() bool
 }
 
+type ConditionalRunnable interface {
+	//ConditionalObject() runtime.Object
+	RunConditionally() bool
+}
+
 // New returns a new Manager for creating Controllers.
 func New(config *rest.Config, options Options) (Manager, error) {
 	// Initialize a rest.config if none was specified

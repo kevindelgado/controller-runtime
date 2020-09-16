@@ -43,6 +43,8 @@ type Controller struct {
 	// MaxConcurrentReconciles is the maximum number of concurrent Reconciles which can be run. Defaults to 1.
 	MaxConcurrentReconciles int
 
+	Conditionally bool
+
 	// Reconciler is a function that can be called at any time with the Name / Namespace of an object and
 	// ensures that the state of the system matches the state specified in the object.
 	// Defaults to the DefaultReconcileFunc.
@@ -180,6 +182,10 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 	<-stop
 	c.Log.Info("Stopping workers")
 	return nil
+}
+
+func (c *Controller) RunConditionally() bool {
+	return c.Conditionally
 }
 
 // worker runs a worker thread that just dequeues items, processes them, and marks them done.

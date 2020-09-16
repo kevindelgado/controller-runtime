@@ -270,8 +270,11 @@ func (blder *Builder) doController(r reconcile.Reconciler) error {
 	}
 	ctrlOptions.Log = ctrlOptions.Log.WithValues("reconcilerGroup", gvk.Group, "reconcilerKind", gvk.Kind)
 
+	fmt.Println("getting ctrl options conditionally", ctrlOptions.Conditionally)
+
 	// Build the controller and return.
 	blder.ctrl, err = newController(blder.getControllerName(gvk), blder.mgr, ctrlOptions)
+	//fmt.Println("bldr ctrl options cond", blder.ctrl.Conditionally)
 	fmt.Printf("newController err is: %v\n", err)
 	//NOTE(kdelga): Also nil, meaning doController does not return an error
 	return err
