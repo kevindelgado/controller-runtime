@@ -459,6 +459,7 @@ func (cm *controllerManager) serveHealthProbes(stop <-chan struct{}) {
 }
 
 func (cm *controllerManager) Start(stop <-chan struct{}) (err error) {
+	fmt.Println("cm.Start()")
 	// This chan indicates that stop is complete, in other words all runnables have returned or timeout on stop request
 	stopComplete := make(chan struct{})
 	defer close(stopComplete)
@@ -500,12 +501,17 @@ func (cm *controllerManager) Start(stop <-chan struct{}) (err error) {
 	go cm.startNonLeaderElectionRunnables()
 
 	go func() {
+		fmt.Println("cm.Start() goro")
 		if cm.resourceLock != nil {
+			fmt.Println("rsc locking")
 			err := cm.startLeaderElection()
 			if err != nil {
+				fmt.Printf("rsc err = %+v\n", err)
 				cm.errChan <- err
 			}
+			fmt.Println("rsc locking end")
 		} else {
+			fmt.Println("got rsc lock")
 			// Treat not having leader election enabled the same as being elected.
 			close(cm.elected)
 			go cm.startLeaderElectionRunnables()
@@ -515,9 +521,11 @@ func (cm *controllerManager) Start(stop <-chan struct{}) (err error) {
 
 	select {
 	case <-stop:
+		fmt.Println("cm.Start() DONE")
 		// We are done
 		return nil
 	case err := <-cm.errChan:
+		fmt.Println("cm.Start() ERR")
 		// Error starting or running a runnable
 		return err
 	}
@@ -635,46 +643,48 @@ func (cm *controllerManager) startConditionalRunnables() {
 					cm.mu.Unlock()
 					fmt.Println("STOP UNLOCKED")
 					return
-				default:
-				}
-				obj := *r.(ConditionalRunnable).GetConditionalObject()
-				gvk, err := apiutil.GVKForObject(obj, cm.scheme)
-				if err != nil {
-					log.Error(err, "could not resolve gvk for conditional runnable obj")
-					cm.mu.Unlock()
-					fmt.Println("BREAK UNLOCKED")
-					break
-				}
-				resources, err := cm.discoveryClient.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
-				if err != nil {
-					curInstalled = false
-				} else {
-					curInstalled = false
-					for _, res := range resources.APIResources {
-						if res.Kind == gvk.Kind {
-							curInstalled = true
+				case <-time.After(100 * time.Millisecond):
+					fmt.Println("AFTER FIRED")
+
+					obj := *r.(ConditionalRunnable).GetConditionalObject()
+					gvk, err := apiutil.GVKForObject(obj, cm.scheme)
+					if err != nil {
+						log.Error(err, "could not resolve gvk for conditional runnable obj")
+						cm.mu.Unlock()
+						fmt.Println("BREAK UNLOCKED")
+						break
+					}
+					resources, err := cm.discoveryClient.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
+					if err != nil {
+						curInstalled = false
+					} else {
+						curInstalled = false
+						for _, res := range resources.APIResources {
+							if res.Kind == gvk.Kind {
+								curInstalled = true
+							}
 						}
 					}
-				}
-				if !prevInstalled && curInstalled {
-					// Going from not installed -> installed.
-					// Start the runnable.
-					presentStop = make(chan struct{})
-					mergedStop := mergeChan(presentStop, cm.internalStop)
-					cm.startRunnable(c, mergedStop)
-					prevInstalled = true
-				} else if prevInstalled && !curInstalled {
-					// Going from installed -> not installed.
-					// Stop the runnable and remove the obj's informer from the cache.
-					close(presentStop)
-					if err := cm.cache.Remove(obj); err != nil {
-						log.Error(err, "could not remove object from cache")
+					if !prevInstalled && curInstalled {
+						// Going from not installed -> installed.
+						// Start the runnable.
+						presentStop = make(chan struct{})
+						mergedStop := mergeChan(presentStop, cm.internalStop)
+						fmt.Println("mgr starting runnable")
+						cm.startRunnable(c, mergedStop)
+						prevInstalled = true
+					} else if prevInstalled && !curInstalled {
+						// Going from installed -> not installed.
+						// Stop the runnable and remove the obj's informer from the cache.
+						close(presentStop)
+						if err := cm.cache.Remove(obj); err != nil {
+							log.Error(err, "could not remove object from cache")
+						}
+						prevInstalled = false
 					}
-					prevInstalled = false
 				}
 				cm.mu.Unlock()
 				fmt.Println("LOOP UNLOCKED, SLEEPING")
-				time.Sleep(100 * time.Microsecond)
 			}
 		}(r)
 	}

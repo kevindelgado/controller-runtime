@@ -720,21 +720,27 @@ var _ = Describe("manger.Manager", func() {
 
 				var condObj runtime.Object
 				condObj = &appsv1.ReplicaSet{}
-				mgrStop := make(chan struct{})
+				runnableStopped := make(chan struct{})
 				condRunnable := &fakeCondRunnable{
 					condObj: &condObj,
-					mgrStop: mgrStop,
+					runStop: runnableStopped,
 				}
 				Expect(m.Add(condRunnable)).NotTo(HaveOccurred())
 
-				s := make(chan struct{})
+				managerStopDone := make(chan struct{})
+				//managerStop := make(chan struct{})
 				go func() {
 					fmt.Println("START mgr")
-					Expect(m.Start(mgrStop)).NotTo(HaveOccurred())
+					//Expect(m.Start(managerStop)).NotTo(HaveOccurred())
+					Expect(m.Start(runnableStopped)).NotTo(HaveOccurred())
 					fmt.Println("mgr Done")
-					close(s)
+					close(managerStopDone)
+					//close(managerStop)
+					//close(runnableStopped)
 				}()
-				<-s
+				//<-m.(*controllerManager).elected
+				<-managerStopDone
+				//close(managerStop)
 				fmt.Println("checking runnable")
 				Expect(condRunnable.started).To(Equal(true))
 
@@ -1331,13 +1337,15 @@ func (*failRec) InjectClient(client.Client) error {
 type fakeCondRunnable struct {
 	condObj *runtime.Object
 	started bool
-	mgrStop chan struct{}
+	runStop chan struct{}
 }
 
 func (f *fakeCondRunnable) Start(s <-chan struct{}) error {
 	fmt.Println("runnable start")
+	//<-s
+	fmt.Println("fake s fired")
 	f.started = true
-	close(f.mgrStop)
+	close(f.runStop)
 	return nil
 }
 
