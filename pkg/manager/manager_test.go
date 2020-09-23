@@ -36,6 +36,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -708,8 +709,48 @@ var _ = Describe("manger.Manager", func() {
 				<-runnableStopped
 				close(done)
 			})
+			//Context("with CRD installed", func() {
+			FIt("should start conditional runnables when the conditional object exists", func(done Done) {
+				fmt.Println("START TEST")
+				m, err := New(cfg, options)
+				Expect(err).NotTo(HaveOccurred())
+				for _, cb := range callbacks {
+					cb(m)
+				}
+
+				var condObj runtime.Object
+				condObj = &appsv1.ReplicaSet{}
+				mgrStop := make(chan struct{})
+				condRunnable := &fakeCondRunnable{
+					condObj: &condObj,
+					mgrStop: mgrStop,
+				}
+				Expect(m.Add(condRunnable)).NotTo(HaveOccurred())
+
+				s := make(chan struct{})
+				go func() {
+					fmt.Println("START mgr")
+					Expect(m.Start(mgrStop)).NotTo(HaveOccurred())
+					fmt.Println("mgr Done")
+					close(s)
+				}()
+				<-s
+				fmt.Println("checking runnable")
+				Expect(condRunnable.started).To(Equal(true))
+
+				fmt.Println("close it out")
+				close(done)
+				fmt.Println("game over")
+			})
+			It("should restart condtional runnables upon deletion and reinstallation", func(done Done) {})
 
 		}
+		//})
+		Context("without CRD installed already", func() {
+			It("should not start conditional runnables if the conditional object does not exist", func(done Done) {})
+			It("should wait to start conditional runnables once CRD is installed", func(done Done) {})
+			It("should run regular runnables uncondtionally while waiting for conditional runnables", func(done Done) {})
+		})
 
 		Context("with defaults", func() {
 			startSuite(Options{})
@@ -1285,6 +1326,23 @@ func (*failRec) Start(<-chan struct{}) error {
 
 func (*failRec) InjectClient(client.Client) error {
 	return fmt.Errorf("expected error")
+}
+
+type fakeCondRunnable struct {
+	condObj *runtime.Object
+	started bool
+	mgrStop chan struct{}
+}
+
+func (f *fakeCondRunnable) Start(s <-chan struct{}) error {
+	fmt.Println("runnable start")
+	f.started = true
+	close(f.mgrStop)
+	return nil
+}
+
+func (f *fakeCondRunnable) GetConditionalObject() *runtime.Object {
+	return f.condObj
 }
 
 var _ inject.Injector = &injectable{}

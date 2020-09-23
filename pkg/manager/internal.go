@@ -613,10 +613,13 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 }
 
 func (cm *controllerManager) startConditionalRunnables() {
+	fmt.Println("COND RUNNABLES")
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	//defer cm.mu.Unlock()
 
 	cm.waitForCache()
+	cm.mu.Unlock()
+	fmt.Println("CACHE UNLOCKED")
 
 	for _, r := range cm.conditionalRunnables {
 		r := r
@@ -625,8 +628,12 @@ func (cm *controllerManager) startConditionalRunnables() {
 			curInstalled := false
 			var presentStop chan struct{}
 			for {
+				fmt.Println("LOOP LOCKING")
+				cm.mu.Lock()
 				select {
 				case <-cm.internalStop:
+					cm.mu.Unlock()
+					fmt.Println("STOP UNLOCKED")
 					return
 				default:
 				}
@@ -634,6 +641,8 @@ func (cm *controllerManager) startConditionalRunnables() {
 				gvk, err := apiutil.GVKForObject(obj, cm.scheme)
 				if err != nil {
 					log.Error(err, "could not resolve gvk for conditional runnable obj")
+					cm.mu.Unlock()
+					fmt.Println("BREAK UNLOCKED")
 					break
 				}
 				resources, err := cm.discoveryClient.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
@@ -663,6 +672,8 @@ func (cm *controllerManager) startConditionalRunnables() {
 					}
 					prevInstalled = false
 				}
+				cm.mu.Unlock()
+				fmt.Println("LOOP UNLOCKED, SLEEPING")
 				time.Sleep(100 * time.Microsecond)
 			}
 		}(r)
