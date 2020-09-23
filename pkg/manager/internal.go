@@ -647,10 +647,11 @@ func (cm *controllerManager) startConditionalRunnables() {
 					fmt.Println("AFTER FIRED")
 
 					obj := *r.(ConditionalRunnable).GetConditionalObject()
+					fmt.Printf("obj = %+v\n", obj)
 					gvk, err := apiutil.GVKForObject(obj, cm.scheme)
+					fmt.Println("discovering for", gvk.GroupVersion().String())
 					if err != nil {
 						log.Error(err, "could not resolve gvk for conditional runnable obj")
-						cm.mu.Unlock()
 						fmt.Println("BREAK UNLOCKED")
 						break
 					}
@@ -751,6 +752,7 @@ func (cm *controllerManager) startLeaderElection() (err error) {
 			OnStartedLeading: func(_ context.Context) {
 				close(cm.elected)
 				cm.startLeaderElectionRunnables()
+				cm.startConditionalRunnables()
 			},
 			OnStoppedLeading: cm.onStoppedLeading,
 		},
