@@ -624,42 +624,26 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 }
 
 func (cm *controllerManager) startConditionalRunnables() {
-	fmt.Println("COND RUNNABLES")
 	cm.mu.Lock()
-	//defer cm.mu.Unlock()
-
 	cm.waitForCache()
 	cm.mu.Unlock()
-	fmt.Println("CACHE UNLOCKED")
 
 	for _, r := range cm.conditionalRunnables {
-		fmt.Println("COND RUN FOR")
-		r := r
 		go func(c Runnable) {
-			fmt.Println("cond run goro")
 			prevInstalled := false
 			curInstalled := false
 			var presentStop chan struct{}
 			for {
-				//fmt.Println("LOOP LOCKING")
 				cm.mu.Lock()
 				select {
 				case <-cm.internalStop:
 					cm.mu.Unlock()
-					fmt.Println("STOP UNLOCKED")
 					return
-				case <-time.After(r.(ConditionalRunnable).GetConditionalWaitTime()):
-					//fmt.Println("AFTER FIRED")
-
-					obj := *r.(ConditionalRunnable).GetConditionalOn()
-					fmt.Printf("obj = %+v\n", obj)
+				case <-time.After(c.(ConditionalRunnable).GetConditionalWaitTime()):
+					obj := *c.(ConditionalRunnable).GetConditionalOn()
 					gvk, err := apiutil.GVKForObject(obj, cm.scheme)
-					fmt.Printf("gvk = %+v\n", gvk)
-					fmt.Println("discovering for", gvk.GroupVersion().String())
-					fmt.Println("kind", gvk.Kind)
 					if err != nil {
 						log.Error(err, "could not resolve gvk for conditional runnable obj")
-						fmt.Println("BREAK UNLOCKED")
 						break
 					}
 					resources, err := cm.discoveryClient.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
@@ -678,7 +662,6 @@ func (cm *controllerManager) startConditionalRunnables() {
 						// Start the runnable.
 						presentStop = make(chan struct{})
 						mergedStop := mergeChan(presentStop, cm.internalStop)
-						fmt.Println("mgr starting runnable")
 						cm.startRunnable(c, mergedStop)
 						prevInstalled = true
 					} else if prevInstalled && !curInstalled {
@@ -695,11 +678,9 @@ func (cm *controllerManager) startConditionalRunnables() {
 					}
 				}
 				cm.mu.Unlock()
-				//fmt.Println("LOOP UNLOCKED, SLEEPING")
 			}
 		}(r)
 	}
-	fmt.Println("COND OUT OF FOR")
 }
 
 func mergeChan(a, b <-chan struct{}) chan struct{} {
@@ -761,7 +742,6 @@ func (cm *controllerManager) startLeaderElection() (err error) {
 		RetryPeriod:   cm.retryPeriod,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(_ context.Context) {
-				fmt.Println("started leading")
 				close(cm.elected)
 				cm.startLeaderElectionRunnables()
 				cm.startConditionalRunnables()
@@ -783,12 +763,6 @@ func (cm *controllerManager) Elected() <-chan struct{} {
 }
 
 func (cm *controllerManager) startRunnable(r Runnable, stop <-chan struct{}) {
-	fmt.Println("WTF STARTRUNNABLE")
-	condRunnable, ok := r.(ConditionalRunnable)
-	fmt.Printf("ok = %+v\n", ok)
-	if ok {
-		fmt.Printf("condRunnable.GetConditionalOn() = %+v\n", condRunnable.GetConditionalOn())
-	}
 	cm.waitForRunnable.Add(1)
 	go func() {
 		defer cm.waitForRunnable.Done()
