@@ -234,7 +234,6 @@ func (cm *controllerManager) Add(r Runnable) error {
 
 	if shouldStart {
 		// If already started, start the controller
-		fmt.Println("ALREADY STARTED? run it")
 		cm.startRunnable(r, cm.internalStop)
 	}
 
@@ -460,7 +459,6 @@ func (cm *controllerManager) serveHealthProbes(stop <-chan struct{}) {
 }
 
 func (cm *controllerManager) Start(stop <-chan struct{}) (err error) {
-	fmt.Println("cm.Start()")
 	// This chan indicates that stop is complete, in other words all runnables have returned or timeout on stop request
 	stopComplete := make(chan struct{})
 	defer close(stopComplete)
@@ -502,17 +500,12 @@ func (cm *controllerManager) Start(stop <-chan struct{}) (err error) {
 	go cm.startNonLeaderElectionRunnables()
 
 	go func() {
-		fmt.Println("cm.Start() goro")
 		if cm.resourceLock != nil {
-			fmt.Println("rsc locking")
 			err := cm.startLeaderElection()
 			if err != nil {
-				fmt.Printf("rsc err = %+v\n", err)
 				cm.errChan <- err
 			}
-			fmt.Println("rsc locking end")
 		} else {
-			fmt.Println("got rsc lock")
 			// Treat not having leader election enabled the same as being elected.
 			close(cm.elected)
 			go cm.startLeaderElectionRunnables()
@@ -522,11 +515,9 @@ func (cm *controllerManager) Start(stop <-chan struct{}) (err error) {
 
 	select {
 	case <-stop:
-		fmt.Println("cm.Start() DONE")
 		// We are done
 		return nil
 	case err := <-cm.errChan:
-		fmt.Println("cm.Start() ERR")
 		// Error starting or running a runnable
 		return err
 	}
@@ -599,7 +590,6 @@ func (cm *controllerManager) startNonLeaderElectionRunnables() {
 
 	// Start the non-leaderelection Runnables after the cache has synced
 	for _, c := range cm.nonLeaderElectionRunnables {
-		fmt.Println("NONLER dammit")
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
 		cm.startRunnable(c, cm.internalStop)
@@ -614,7 +604,6 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 
 	// Start the leader election Runnables after the cache has synced
 	for _, c := range cm.leaderElectionRunnables {
-		fmt.Println("SLER dammit")
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
 		cm.startRunnable(c, cm.internalStop)

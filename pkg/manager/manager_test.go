@@ -761,7 +761,6 @@ var _ = Describe("manger.Manager", func() {
 					defer GinkgoRecover()
 					<-m.(*controllerManager).elected
 					for i := 0; i < 5; i++ {
-						fmt.Printf("loop i = %+v\n", i)
 						if i%2 == 1 {
 							// install CRD
 							crds, err := envtest.InstallCRDs(cfg, crdOpts)
