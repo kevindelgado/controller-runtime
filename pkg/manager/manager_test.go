@@ -165,7 +165,7 @@ var _ = Describe("manger.Manager", func() {
 				runnableDone := make(chan struct{})
 				slowRunnable := RunnableFunc(func(s <-chan struct{}) error {
 					<-s
-					time.Sleep(100 * time.Millisecond)
+					time.Sleep(50 * time.Millisecond)
 					close(runnableDone)
 					return nil
 				})
@@ -1386,7 +1386,7 @@ func (f *fakeCondRunnable) GetConditionalOn() *runtime.Object {
 }
 
 func (f *fakeCondRunnable) GetConditionalWaitTime() time.Duration {
-	return 25 * time.Millisecond
+	return 5 * time.Millisecond
 }
 
 var _ inject.Injector = &injectable{}
