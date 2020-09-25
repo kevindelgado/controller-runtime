@@ -38,7 +38,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	appsv1 "k8s.io/api/apps/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -819,21 +818,7 @@ var _ = Describe("manger.Manager", func() {
 					cb(m)
 				}
 
-				// try it the kbdr way
-				//groupVersion := schema.GroupVersion{Group: "bar.example.com", Version: "v1"}
-				//schemeBuilder := &scheme.Builder{GroupVersion: groupVersion}
-				//addToScheme := schemeBuilder.AddToScheme
-
-				// maybe add it to the scheme first?
-				err = apiextensionsv1.AddToScheme(s)
-				Expect(err).NotTo(HaveOccurred())
-
-				//err = schemeBuilder.AddToScheme(s)
-				//Expect(err).NotTo(HaveOccurred())
-
-				//c, err := client.New(cfg, client.Options{Scheme: s})
-				//Expect(err).NotTo(HaveOccurred())
-
+				// Toggle the install/uninstall CRDs to break the test.
 				crdPath := filepath.Join(".", "testdata")
 				Expect(err).NotTo(HaveOccurred())
 				crdOpts := envtest.CRDInstallOptions{
@@ -844,42 +829,9 @@ var _ = Describe("manger.Manager", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(len(crds)).To(Equal(1))
 				fmt.Printf("crds[0]. = %+v\n", crds[0].GetObjectKind().GroupVersionKind().String())
-				//fmt.Printf("crds[0] = %+v\n", crds[0])
-
-				//fooCRD := &apiextensionsv1.CustomResourceDefinition{}
-				//err = c.Get(context.TODO(), types.NamespacedName{Name: "foos.bar.example.com"}, fooCRD)
-				//Expect(err).NotTo(HaveOccurred())
-				//Expect(fooCRD.Spec.Names.Kind).To(Equal("Foo"))
-				//fmt.Printf("fooCRD. = %+v\n", fooCRD.GetObjectKind().GroupVersionKind().String())
-
-				//crdv1 := &apiextensionsv1.CustomResourceDefinition{
-				//	Spec: apiextensionsv1.CustomResourceDefinitionSpec{
-				//		Group: "bar.example.com",
-				//		Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
-				//			{
-				//				Name:    "v1",
-				//				Storage: true,
-				//				Served:  true,
-				//				Schema: &apiextensionsv1.CustomResourceValidation{
-				//					OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
-				//						Type: "object",
-				//					},
-				//				},
-				//			},
-				//		},
-				//		Names: apiextensionsv1.CustomResourceDefinitionNames{
-				//			Plural: "foos",
-				//		},
-				//	},
-				//}
-
-				//err = envtest.WaitForCRDs(cfg, []runtime.Object{crdv1}, envtest.CRDInstallOptions{MaxTime: 50 * time.Millisecond, PollInterval: 15 * time.Millisecond})
-				//Expect(err).NotTo(HaveOccurred())
 
 				//err = envtest.UninstallCRDs(cfg, crdOpts)
-				//Expect(err).NotTo(HaveOccurred())
-				//err = envtest.WaitForCRDs(cfg, []runtime.Object{fooCRD}, envtest.CRDInstallOptions{MaxTime: 50 * time.Millisecond, PollInterval: 15 * time.Millisecond})
-				//Expect(err).NotTo(HaveOccurred())
+				Expect(err).NotTo(HaveOccurred())
 
 				var condObj runtime.Object
 				condObj = &foo.Foo{}
