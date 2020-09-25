@@ -267,7 +267,8 @@ type LeaderElectionRunnable interface {
 // ConditionalRunnable knows if a Runnable needs to be run condtional
 // bsed on the existence of the conditional object on the cluster.
 type ConditionalRunnable interface {
-	GetConditionalObject() *runtime.Object
+	GetConditionalOn() *runtime.Object
+	GetConditionalWaitTime() time.Duration
 }
 
 // New returns a new Manager for creating Controllers.

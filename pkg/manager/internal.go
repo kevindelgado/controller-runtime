@@ -225,7 +225,7 @@ func (cm *controllerManager) Add(r Runnable) error {
 		cm.nonLeaderElectionRunnables = append(cm.nonLeaderElectionRunnables, r)
 	} else {
 		shouldStart = cm.startedLeader
-		if condRunnable, ok := r.(ConditionalRunnable); ok && condRunnable.GetConditionalObject() != nil {
+		if condRunnable, ok := r.(ConditionalRunnable); ok && condRunnable.GetConditionalOn() != nil {
 			cm.conditionalRunnables = append(cm.conditionalRunnables, r)
 		} else {
 			cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
@@ -234,6 +234,7 @@ func (cm *controllerManager) Add(r Runnable) error {
 
 	if shouldStart {
 		// If already started, start the controller
+		fmt.Println("ALREADY STARTED? run it")
 		cm.startRunnable(r, cm.internalStop)
 	}
 
@@ -612,6 +613,7 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 
 	// Start the leader election Runnables after the cache has synced
 	for _, c := range cm.leaderElectionRunnables {
+		fmt.Println("SLER dammit")
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
 		cm.startRunnable(c, cm.internalStop)
@@ -630,26 +632,30 @@ func (cm *controllerManager) startConditionalRunnables() {
 	fmt.Println("CACHE UNLOCKED")
 
 	for _, r := range cm.conditionalRunnables {
+		fmt.Println("COND RUN FOR")
 		r := r
 		go func(c Runnable) {
+			fmt.Println("cond run goro")
 			prevInstalled := false
 			curInstalled := false
 			var presentStop chan struct{}
 			for {
-				fmt.Println("LOOP LOCKING")
+				//fmt.Println("LOOP LOCKING")
 				cm.mu.Lock()
 				select {
 				case <-cm.internalStop:
 					cm.mu.Unlock()
 					fmt.Println("STOP UNLOCKED")
 					return
-				case <-time.After(100 * time.Millisecond):
-					fmt.Println("AFTER FIRED")
+				case <-time.After(r.(ConditionalRunnable).GetConditionalWaitTime()):
+					//fmt.Println("AFTER FIRED")
 
-					obj := *r.(ConditionalRunnable).GetConditionalObject()
+					obj := *r.(ConditionalRunnable).GetConditionalOn()
 					fmt.Printf("obj = %+v\n", obj)
 					gvk, err := apiutil.GVKForObject(obj, cm.scheme)
+					fmt.Printf("gvk = %+v\n", gvk)
 					fmt.Println("discovering for", gvk.GroupVersion().String())
+					fmt.Println("kind", gvk.Kind)
 					if err != nil {
 						log.Error(err, "could not resolve gvk for conditional runnable obj")
 						fmt.Println("BREAK UNLOCKED")
@@ -677,6 +683,9 @@ func (cm *controllerManager) startConditionalRunnables() {
 					} else if prevInstalled && !curInstalled {
 						// Going from installed -> not installed.
 						// Stop the runnable and remove the obj's informer from the cache.
+						// It's safe to remove the obj's informer because anything that is
+						// using it's informer will no longer work because the obj has been
+						// uninstalled from the cluster.
 						close(presentStop)
 						if err := cm.cache.Remove(obj); err != nil {
 							log.Error(err, "could not remove object from cache")
@@ -685,10 +694,11 @@ func (cm *controllerManager) startConditionalRunnables() {
 					}
 				}
 				cm.mu.Unlock()
-				fmt.Println("LOOP UNLOCKED, SLEEPING")
+				//fmt.Println("LOOP UNLOCKED, SLEEPING")
 			}
 		}(r)
 	}
+	fmt.Println("COND OUT OF FOR")
 }
 
 func mergeChan(a, b <-chan struct{}) chan struct{} {
@@ -750,6 +760,7 @@ func (cm *controllerManager) startLeaderElection() (err error) {
 		RetryPeriod:   cm.retryPeriod,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(_ context.Context) {
+				fmt.Println("started leading")
 				close(cm.elected)
 				cm.startLeaderElectionRunnables()
 				cm.startConditionalRunnables()
@@ -771,6 +782,12 @@ func (cm *controllerManager) Elected() <-chan struct{} {
 }
 
 func (cm *controllerManager) startRunnable(r Runnable, stop <-chan struct{}) {
+	fmt.Println("WTF STARTRUNNABLE")
+	condRunnable, ok := r.(ConditionalRunnable)
+	fmt.Printf("ok = %+v\n", ok)
+	if ok {
+		fmt.Printf("condRunnable.GetConditionalOn() = %+v\n", condRunnable.GetConditionalOn())
+	}
 	cm.waitForRunnable.Add(1)
 	go func() {
 		defer cm.waitForRunnable.Done()

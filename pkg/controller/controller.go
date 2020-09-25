@@ -18,6 +18,7 @@ package controller
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -50,12 +51,16 @@ type Options struct {
 	// Conditionally is a flag set during controller setup that indicates it should conditionally wait on the
 	// ForObject to appear in the discovery doc before starting the controller. If set,
 	// it will set ConditionalObject to the ForObject being reconciled for in the controller builder.
-	Conditionally bool
+	//Conditionally bool
 
 	// ConditionalObject is the Object that the manager should wait on to appear
 	// in the discovery document to indicate to begin running the controller
 	// (and should stop the informer for this object if it disappears from the discovery doc).
-	ConditionalObject *runtime.Object
+	ConditionalOn *runtime.Object
+
+	// ConditionalWaitTime is the frequency at which the controller manager should check
+	// the discovery doc for the existence of the CondtionalOn object.
+	ConditionalWaitTime time.Duration
 }
 
 // Controller implements a Kubernetes API.  A Controller manages a work queue fed reconcile.Requests
@@ -128,7 +133,8 @@ func NewUnmanaged(name string, mgr manager.Manager, options Options) (Controller
 		MaxConcurrentReconciles: options.MaxConcurrentReconciles,
 		SetFields:               mgr.SetFields,
 		Name:                    name,
-		ConditionalObject:       options.ConditionalObject,
+		ConditionalOn:           options.ConditionalOn,
+		ConditionalWaitTime:     options.ConditionalWaitTime,
 		Log:                     options.Log.WithName("controller").WithValues("controller", name),
 	}, nil
 }

@@ -47,12 +47,16 @@ type Controller struct {
 	// Conditionally is a flag set during controller setup that indicates it should conditionally wait on the
 	// ForObject to appear in the discovery doc before starting the controller. If set,
 	// it will set ConditionalObject to the ForObject being reconciled for in the controller builder.
-	Conditionally bool
+	// Conditionally bool
 
-	// ConditionalObject is the Object that the manager should wait on to appear
+	// ConditionalOn is the Object that the manager should wait on to appear
 	// in the discovery document to indicate to begin running the controller
 	// (and should stop the informer for this object if it disappears from the discovery doc).
-	ConditionalObject *runtime.Object
+	ConditionalOn *runtime.Object
+
+	// ConditionalWaitTime is the frequency at which the controller manager should check
+	// the discovery doc for the existence of the CondtionalOn object.
+	ConditionalWaitTime time.Duration
 
 	// Reconciler is a function that can be called at any time with the Name / Namespace of an object and
 	// ensures that the state of the system matches the state specified in the object.
@@ -193,11 +197,18 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 	return nil
 }
 
-// GetConditionalObject returns the object that startCondtionalRunnables uses
+// GetConditionalOn returns the object that startCondtionalRunnables used
 // to determine whether a condtional runnable should be started/stopped (based
 // on the object's existence in the cluster's discovery doc).
-func (c *Controller) GetConditionalObject() *runtime.Object {
-	return c.ConditionalObject
+func (c *Controller) GetConditionalOn() *runtime.Object {
+	return c.ConditionalOn
+}
+
+// GetConditionalWaitTime returns the duration for which the
+// controller manager should wait on each iteration when checking the
+// discovery doc for the ConditionalOn object's existence.
+func (c *Controller) GetConditionalWaitTime() time.Duration {
+	return c.ConditionalWaitTime
 }
 
 // worker runs a worker thread that just dequeues items, processes them, and marks them done.

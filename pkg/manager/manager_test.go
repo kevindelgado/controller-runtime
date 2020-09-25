@@ -38,6 +38,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	appsv1 "k8s.io/api/apps/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -49,6 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/leaderelection"
 	fakeleaderelection "sigs.k8s.io/controller-runtime/pkg/leaderelection/fake"
+	"sigs.k8s.io/controller-runtime/pkg/manager/foo"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/recorder"
@@ -753,7 +755,8 @@ var _ = Describe("manger.Manager", func() {
 				close(done)
 				fmt.Println("game over")
 			})
-			FIt("should not start conditional runnables when the conditional object doesn't exist", func(done Done) {
+
+			It("should start conditional runnables when the conditional object exists", func(done Done) {
 				fmt.Println("START TEST")
 				m, err := New(cfg, options)
 				Expect(err).NotTo(HaveOccurred())
@@ -802,30 +805,92 @@ var _ = Describe("manger.Manager", func() {
 				close(done)
 				fmt.Println("game over")
 			})
-			It("should restart condtional runnables upon deletion and reinstallation", func(done Done) {})
-
-		}
-		//})
-		Context("without CRD installed already", func() {
-			It("should not start conditional runnables if the conditional object does not exist", func(done Done) {})
-			It("should wait to start conditional runnables once CRD is installed", func(done Done) {})
-			It("should run regular runnables uncondtionally while waiting for conditional runnables", func(done Done) {})
-		})
-
-		Context("with condtional runnables", func() {
-			var opts Options
-			It("should start conditional runnables when the conditional object exists", func(done Done) {
+			FIt("should not start conditional runnables when the conditional object doesn't exist", func(done Done) {
 				fmt.Println("START TEST")
-				m, err := New(cfg, opts)
+				// boilerplate?
+				s := runtime.NewScheme()
+				fmt.Printf("s = %+v\n", s)
+				f := &foo.Foo{}
+				s.AddKnownTypeWithName(f.GroupVersionKind(), f)
+				options.Scheme = s
+				m, err := New(cfg, options)
+				Expect(err).NotTo(HaveOccurred())
+				for _, cb := range callbacks {
+					cb(m)
+				}
+
+				// try it the kbdr way
+				//groupVersion := schema.GroupVersion{Group: "bar.example.com", Version: "v1"}
+				//schemeBuilder := &scheme.Builder{GroupVersion: groupVersion}
+				//addToScheme := schemeBuilder.AddToScheme
+
+				// maybe add it to the scheme first?
+				err = apiextensionsv1.AddToScheme(s)
 				Expect(err).NotTo(HaveOccurred())
 
+				//err = schemeBuilder.AddToScheme(s)
+				//Expect(err).NotTo(HaveOccurred())
+
+				//c, err := client.New(cfg, client.Options{Scheme: s})
+				//Expect(err).NotTo(HaveOccurred())
+
+				crdPath := filepath.Join(".", "testdata")
+				Expect(err).NotTo(HaveOccurred())
+				crdOpts := envtest.CRDInstallOptions{
+					Paths: []string{crdPath},
+				}
+
+				crds, err := envtest.InstallCRDs(cfg, crdOpts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(crds)).To(Equal(1))
+				fmt.Printf("crds[0]. = %+v\n", crds[0].GetObjectKind().GroupVersionKind().String())
+				//fmt.Printf("crds[0] = %+v\n", crds[0])
+
+				//fooCRD := &apiextensionsv1.CustomResourceDefinition{}
+				//err = c.Get(context.TODO(), types.NamespacedName{Name: "foos.bar.example.com"}, fooCRD)
+				//Expect(err).NotTo(HaveOccurred())
+				//Expect(fooCRD.Spec.Names.Kind).To(Equal("Foo"))
+				//fmt.Printf("fooCRD. = %+v\n", fooCRD.GetObjectKind().GroupVersionKind().String())
+
+				//crdv1 := &apiextensionsv1.CustomResourceDefinition{
+				//	Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+				//		Group: "bar.example.com",
+				//		Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+				//			{
+				//				Name:    "v1",
+				//				Storage: true,
+				//				Served:  true,
+				//				Schema: &apiextensionsv1.CustomResourceValidation{
+				//					OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
+				//						Type: "object",
+				//					},
+				//				},
+				//			},
+				//		},
+				//		Names: apiextensionsv1.CustomResourceDefinitionNames{
+				//			Plural: "foos",
+				//		},
+				//	},
+				//}
+
+				//err = envtest.WaitForCRDs(cfg, []runtime.Object{crdv1}, envtest.CRDInstallOptions{MaxTime: 50 * time.Millisecond, PollInterval: 15 * time.Millisecond})
+				//Expect(err).NotTo(HaveOccurred())
+
+				//err = envtest.UninstallCRDs(cfg, crdOpts)
+				//Expect(err).NotTo(HaveOccurred())
+				//err = envtest.WaitForCRDs(cfg, []runtime.Object{fooCRD}, envtest.CRDInstallOptions{MaxTime: 50 * time.Millisecond, PollInterval: 15 * time.Millisecond})
+				//Expect(err).NotTo(HaveOccurred())
+
 				var condObj runtime.Object
-				condObj = &appsv1.ReplicaSet{}
+				condObj = &foo.Foo{}
+
 				runnableStopped := make(chan struct{})
 				condRunnable := &fakeCondRunnable{
-					condObj: &condObj,
-					runStop: runnableStopped,
+					condObj:    &condObj,
+					runStop:    runnableStopped,
+					startCount: 0,
 				}
+
 				Expect(m.Add(condRunnable)).NotTo(HaveOccurred())
 
 				managerStopDone := make(chan struct{})
@@ -852,7 +917,55 @@ var _ = Describe("manger.Manager", func() {
 				fmt.Println("game over")
 			})
 
-		})
+		}
+		//})
+		//Context("without CRD installed already", func() {
+		//	It("should not start conditional runnables if the conditional object does not exist", func(done Done) {})
+		//	It("should wait to start conditional runnables once CRD is installed", func(done Done) {})
+		//	It("should run regular runnables uncondtionally while waiting for conditional runnables", func(done Done) {})
+		//})
+
+		//Context("with condtional runnables", func() {
+		//	var opts Options
+		//	It("should start conditional runnables when the conditional object exists", func(done Done) {
+		//		fmt.Println("START TEST")
+		//		m, err := New(cfg, opts)
+		//		Expect(err).NotTo(HaveOccurred())
+
+		//		var condObj runtime.Object
+		//		condObj = &appsv1.ReplicaSet{}
+		//		runnableStopped := make(chan struct{})
+		//		condRunnable := &fakeCondRunnable{
+		//			condObj: &condObj,
+		//			runStop: runnableStopped,
+		//		}
+		//		Expect(m.Add(condRunnable)).NotTo(HaveOccurred())
+
+		//		managerStopDone := make(chan struct{})
+		//		//managerStop := make(chan struct{})
+		//		go func() {
+		//			fmt.Println("mgr Start test goro")
+		//			//Expect(m.Start(managerStop)).NotTo(HaveOccurred())
+		//			Expect(m.Start(runnableStopped)).NotTo(HaveOccurred())
+		//			fmt.Println("mgr Done test goro")
+		//			<-m.(*controllerManager).elected
+		//			fmt.Println("leader elected")
+		//			close(managerStopDone)
+		//			//close(managerStop)
+		//			//close(runnableStopped)
+		//		}()
+		//		//<-m.(*controllerManager).elected
+		//		<-managerStopDone
+		//		//close(managerStop)
+		//		fmt.Println("checking runnable")
+		//		Expect(condRunnable.startCount).To(Equal(1))
+
+		//		fmt.Println("close it out")
+		//		close(done)
+		//		fmt.Println("game over")
+		//	})
+
+		//})
 
 		Context("with defaults", func() {
 			startSuite(Options{})
@@ -1448,8 +1561,12 @@ func (f *fakeCondRunnable) Start(s <-chan struct{}) error {
 	return nil
 }
 
-func (f *fakeCondRunnable) GetConditionalObject() *runtime.Object {
+func (f *fakeCondRunnable) GetConditionalOn() *runtime.Object {
 	return f.condObj
+}
+
+func (f *fakeCondRunnable) GetConditionalWaitTime() time.Duration {
+	return 250 * time.Millisecond
 }
 
 var _ inject.Injector = &injectable{}

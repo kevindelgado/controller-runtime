@@ -17,6 +17,8 @@ limitations under the License.
 package builder
 
 import (
+	"time"
+
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
@@ -74,5 +76,22 @@ func (w Predicates) ApplyToWatches(opts *WatchesInput) {
 var _ ForOption = &Predicates{}
 var _ OwnsOption = &Predicates{}
 var _ WatchesOption = &Predicates{}
+
+// ConditionallyRun runs the controller
+// condtionally on the existence of the forInput object
+// in the cluster's discovery doc, letting you start a
+// controller manager for a CRD not yet installed on the cluster.
+type ConditionallyRun struct {
+	waitTime time.Duration
+}
+
+func (w ConditionallyRun) ApplyToFor(opts *ForInput) {
+	opts.conditionallyRun = true
+	if w.waitTime == time.Duration(0) {
+		opts.waitTime = 100 * time.Microsecond
+	} else {
+		opts.waitTime = w.waitTime
+	}
+}
 
 // }}}

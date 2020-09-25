@@ -19,6 +19,7 @@ package builder
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -68,8 +69,10 @@ func (blder *Builder) ForType(apiType runtime.Object) *Builder {
 
 // ForInput represents the information set by For method.
 type ForInput struct {
-	object     runtime.Object
-	predicates []predicate.Predicate
+	object           runtime.Object
+	predicates       []predicate.Predicate
+	conditionallyRun bool
+	waitTime         time.Duration
 }
 
 // For defines the type of Object being *reconciled*, and configures the ControllerManagedBy to respond to create / delete /
@@ -263,8 +266,9 @@ func (blder *Builder) doController(r reconcile.Reconciler) error {
 	}
 	ctrlOptions.Log = ctrlOptions.Log.WithValues("reconcilerGroup", gvk.Group, "reconcilerKind", gvk.Kind)
 
-	if ctrlOptions.Conditionally {
-		ctrlOptions.ConditionalObject = &blder.forInput.object
+	if blder.forInput.conditionallyRun {
+		ctrlOptions.ConditionalOn = &blder.forInput.object
+		ctrlOptions.ConditionalWaitTime = blder.forInput.waitTime
 	}
 
 	// Build the controller and return.
