@@ -165,7 +165,7 @@ var _ = Describe("manger.Manager", func() {
 				runnableDone := make(chan struct{})
 				slowRunnable := RunnableFunc(func(s <-chan struct{}) error {
 					<-s
-					time.Sleep(50 * time.Millisecond)
+					time.Sleep(100 * time.Millisecond)
 					close(runnableDone)
 					return nil
 				})
@@ -775,7 +775,7 @@ var _ = Describe("manger.Manager", func() {
 						case <-runCh:
 							// CRD is installed
 							Expect(i % 2).To(Equal(1))
-						case <-time.After(75 * time.Millisecond):
+						case <-time.After(50 * time.Millisecond):
 							// CRD is NOT installed
 							Expect(i % 2).To(Equal(0))
 							condRunnable.noStartCount++
