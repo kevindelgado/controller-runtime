@@ -599,6 +599,7 @@ func (cm *controllerManager) startNonLeaderElectionRunnables() {
 
 	// Start the non-leaderelection Runnables after the cache has synced
 	for _, c := range cm.nonLeaderElectionRunnables {
+		fmt.Println("NONLER dammit")
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
 		cm.startRunnable(c, cm.internalStop)

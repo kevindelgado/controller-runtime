@@ -37,7 +37,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
 
-	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -713,156 +712,102 @@ var _ = Describe("manger.Manager", func() {
 				close(done)
 			})
 
-			It("should start conditional runnables when the conditional object exists", func(done Done) {
+			FIt("should run manager for conditional runnables when corresponding CRD is not installed, installed, uninstalled and reinstalled", func(done Done) {
 				fmt.Println("START TEST")
-				m, err := New(cfg, options)
-				Expect(err).NotTo(HaveOccurred())
-				for _, cb := range callbacks {
-					cb(m)
-				}
 
-				var condObj runtime.Object
-				condObj = &appsv1.ReplicaSet{}
-				//condObj = &apiextensionsv1.CustomResourceDefinition{}
-				runnableStopped := make(chan struct{})
-				condRunnable := &fakeCondRunnable{
-					condObj: &condObj,
-					runStop: runnableStopped,
-				}
-				Expect(m.Add(condRunnable)).NotTo(HaveOccurred())
-
-				managerStopDone := make(chan struct{})
-				//managerStop := make(chan struct{})
-				go func() {
-					fmt.Println("mgr Start test goro")
-					//Expect(m.Start(managerStop)).NotTo(HaveOccurred())
-					Expect(m.Start(runnableStopped)).NotTo(HaveOccurred())
-					fmt.Println("mgr Done test goro")
-					<-m.(*controllerManager).elected
-					fmt.Println("leader elected")
-					close(managerStopDone)
-					//close(managerStop)
-					//close(runnableStopped)
-				}()
-				//<-m.(*controllerManager).elected
-				<-managerStopDone
-				//close(managerStop)
-				fmt.Println("checking runnable")
-				Expect(condRunnable.startCount).To(Equal(1))
-
-				fmt.Println("close it out")
-				close(done)
-				fmt.Println("game over")
-			})
-
-			It("should start conditional runnables when the conditional object exists", func(done Done) {
-				fmt.Println("START TEST")
-				m, err := New(cfg, options)
-				Expect(err).NotTo(HaveOccurred())
-				for _, cb := range callbacks {
-					cb(m)
-				}
-
-				Expect(err).NotTo(HaveOccurred())
-				crds, err := envtest.InstallCRDs(cfg, envtest.CRDInstallOptions{
-					Paths: []string{filepath.Join(".", "testdata")},
-				})
-				Expect(err).NotTo(HaveOccurred())
-				Expect(len(crds)).To(Equal(1))
-				fmt.Printf("crds[0] = %+v\n", crds[0])
-
-				var condObj runtime.Object
-				condObj = crds[0]
-				//condObj = &batchv1.CronJob{}
-				runnableStopped := make(chan struct{})
-				condRunnable := &fakeCondRunnable{
-					condObj: &condObj,
-					runStop: runnableStopped,
-				}
-				Expect(m.Add(condRunnable)).NotTo(HaveOccurred())
-
-				managerStopDone := make(chan struct{})
-				//managerStop := make(chan struct{})
-				go func() {
-					fmt.Println("mgr Start test goro")
-					//Expect(m.Start(managerStop)).NotTo(HaveOccurred())
-					Expect(m.Start(runnableStopped)).NotTo(HaveOccurred())
-					fmt.Println("mgr Done test goro")
-					<-m.(*controllerManager).elected
-					fmt.Println("leader elected")
-					close(managerStopDone)
-					//close(managerStop)
-					//close(runnableStopped)
-				}()
-				//<-m.(*controllerManager).elected
-				<-managerStopDone
-				//close(managerStop)
-				fmt.Println("checking runnable")
-				Expect(condRunnable.startCount).To(Equal(1))
-
-				fmt.Println("close it out")
-				close(done)
-				fmt.Println("game over")
-			})
-			FIt("should not start conditional runnables when the conditional object doesn't exist", func(done Done) {
-				fmt.Println("START TEST")
-				// boilerplate?
+				// initinalize scheme, crdOpts
 				s := runtime.NewScheme()
-				fmt.Printf("s = %+v\n", s)
 				f := &foo.Foo{}
 				s.AddKnownTypeWithName(f.GroupVersionKind(), f)
 				options.Scheme = s
-				m, err := New(cfg, options)
-				Expect(err).NotTo(HaveOccurred())
-				for _, cb := range callbacks {
-					cb(m)
-				}
-
-				// Toggle the install/uninstall CRDs to break the test.
 				crdPath := filepath.Join(".", "testdata")
-				Expect(err).NotTo(HaveOccurred())
 				crdOpts := envtest.CRDInstallOptions{
 					Paths: []string{crdPath},
 				}
 
-				crds, err := envtest.InstallCRDs(cfg, crdOpts)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(len(crds)).To(Equal(1))
-				fmt.Printf("crds[0]. = %+v\n", crds[0].GetObjectKind().GroupVersionKind().String())
-
-				//err = envtest.UninstallCRDs(cfg, crdOpts)
+				// create manager
+				m, err := New(cfg, options)
 				Expect(err).NotTo(HaveOccurred())
 
-				var condObj runtime.Object
-				condObj = &foo.Foo{}
-
-				runnableStopped := make(chan struct{})
-				condRunnable := &fakeCondRunnable{
-					condObj:    &condObj,
-					runStop:    runnableStopped,
-					startCount: 0,
+				// boilerplate? (IDK what this does)
+				for _, cb := range callbacks {
+					cb(m)
 				}
 
+				// create conditional runnable, add it to the manager
+				var condObj runtime.Object
+				condObj = &foo.Foo{}
+				runCh := make(chan int)
+				condRunnable := &fakeCondRunnable{
+					condObj:    &condObj,
+					runCh:      runCh,
+					startCount: 0,
+				}
 				Expect(m.Add(condRunnable)).NotTo(HaveOccurred())
 
-				managerStopDone := make(chan struct{})
-				//managerStop := make(chan struct{})
+				// start the manager in a separate go routine
+				mgrStop := make(chan struct{})
 				go func() {
+					defer GinkgoRecover()
+					fmt.Println("mgr starting ")
+					Expect(m.Start(mgrStop)).NotTo(HaveOccurred())
+					fmt.Println("ONLY END OF TEST")
+					close(runCh)
+				}()
+
+				// run the test go routine to iterate through the situations where
+				// the CRD is
+				// 1) not installed
+				// 2) installed
+				// 3) uninstalled
+				// 4) reinstalled
+				// 5) uninstall for test cleanup
+				testLoopDone := make(chan struct{})
+				go func() {
+					defer GinkgoRecover()
 					fmt.Println("mgr Start test goro")
-					//Expect(m.Start(managerStop)).NotTo(HaveOccurred())
-					Expect(m.Start(runnableStopped)).NotTo(HaveOccurred())
-					fmt.Println("mgr Done test goro")
 					<-m.(*controllerManager).elected
 					fmt.Println("leader elected")
-					close(managerStopDone)
-					//close(managerStop)
-					//close(runnableStopped)
+					for i := 0; i < 5; i++ {
+						fmt.Printf("loop i = %+v\n", i)
+						if i%2 == 1 {
+							// install CRD
+							fmt.Println("install CRD")
+							crds, err := envtest.InstallCRDs(cfg, crdOpts)
+							Expect(err).NotTo(HaveOccurred())
+							Expect(len(crds)).To(Equal(1))
+							fmt.Printf("crds[0]. = %+v\n", crds[0].GetObjectKind().GroupVersionKind().String())
+						} else if i > 0 {
+							// uninstall CRD
+							fmt.Println("uninstall CRD")
+							err = envtest.UninstallCRDs(cfg, crdOpts)
+							Expect(err).NotTo(HaveOccurred())
+						}
+						fmt.Println("run func kicked off")
+						select {
+						case <-runCh:
+							fmt.Println("CRD installed!")
+							Expect(i % 2).To(Equal(1))
+							//expectedCount++
+						case <-time.After(75 * time.Millisecond):
+							fmt.Println("CRD NOT installed")
+							Expect(i % 2).To(Equal(0))
+							condRunnable.noStartCount++
+							//expectedNoStartCount++
+						}
+
+						fmt.Println("mgr Done test goro")
+						//close(managerStop)
+					}
+					close(mgrStop)
+					close(testLoopDone)
 				}()
-				//<-m.(*controllerManager).elected
-				<-managerStopDone
-				//close(managerStop)
+				<-testLoopDone
 				fmt.Println("checking runnable")
-				Expect(condRunnable.startCount).To(Equal(1))
+				expectedCount := 2
+				expectedNoStartCount := 3
+				Expect(condRunnable.startCount).To(Equal(expectedCount))
+				Expect(condRunnable.noStartCount).To(Equal(expectedNoStartCount))
 
 				fmt.Println("close it out")
 				close(done)
@@ -870,54 +815,7 @@ var _ = Describe("manger.Manager", func() {
 			})
 
 		}
-		//})
-		//Context("without CRD installed already", func() {
-		//	It("should not start conditional runnables if the conditional object does not exist", func(done Done) {})
-		//	It("should wait to start conditional runnables once CRD is installed", func(done Done) {})
-		//	It("should run regular runnables uncondtionally while waiting for conditional runnables", func(done Done) {})
-		//})
-
-		//Context("with condtional runnables", func() {
-		//	var opts Options
-		//	It("should start conditional runnables when the conditional object exists", func(done Done) {
-		//		fmt.Println("START TEST")
-		//		m, err := New(cfg, opts)
-		//		Expect(err).NotTo(HaveOccurred())
-
-		//		var condObj runtime.Object
-		//		condObj = &appsv1.ReplicaSet{}
-		//		runnableStopped := make(chan struct{})
-		//		condRunnable := &fakeCondRunnable{
-		//			condObj: &condObj,
-		//			runStop: runnableStopped,
-		//		}
-		//		Expect(m.Add(condRunnable)).NotTo(HaveOccurred())
-
-		//		managerStopDone := make(chan struct{})
-		//		//managerStop := make(chan struct{})
-		//		go func() {
-		//			fmt.Println("mgr Start test goro")
-		//			//Expect(m.Start(managerStop)).NotTo(HaveOccurred())
-		//			Expect(m.Start(runnableStopped)).NotTo(HaveOccurred())
-		//			fmt.Println("mgr Done test goro")
-		//			<-m.(*controllerManager).elected
-		//			fmt.Println("leader elected")
-		//			close(managerStopDone)
-		//			//close(managerStop)
-		//			//close(runnableStopped)
-		//		}()
-		//		//<-m.(*controllerManager).elected
-		//		<-managerStopDone
-		//		//close(managerStop)
-		//		fmt.Println("checking runnable")
-		//		Expect(condRunnable.startCount).To(Equal(1))
-
-		//		fmt.Println("close it out")
-		//		close(done)
-		//		fmt.Println("game over")
-		//	})
-
-		//})
+		/////// UNCOMMENT Below
 
 		Context("with defaults", func() {
 			startSuite(Options{})
@@ -1496,20 +1394,21 @@ func (*failRec) InjectClient(client.Client) error {
 }
 
 type fakeCondRunnable struct {
-	condObj    *runtime.Object
-	startCount int
-	started    bool
-	runStop    chan struct{}
+	condObj      *runtime.Object
+	startCount   int
+	noStartCount int
+	//started      bool
+	runCh chan int
 }
 
 func (f *fakeCondRunnable) Start(s <-chan struct{}) error {
 	fmt.Println("runnable start")
 	//<-s
-	fmt.Println("fake s fired")
+	//fmt.Println("fake s fired")
 	f.startCount++
-	f.started = true
-	//<-m.(*controllerManager).elected
-	close(f.runStop)
+	f.runCh <- 1
+	//f.started = true
+	//close(f.runStop)
 	return nil
 }
 
@@ -1518,7 +1417,7 @@ func (f *fakeCondRunnable) GetConditionalOn() *runtime.Object {
 }
 
 func (f *fakeCondRunnable) GetConditionalWaitTime() time.Duration {
-	return 250 * time.Millisecond
+	return 25 * time.Millisecond
 }
 
 var _ inject.Injector = &injectable{}
