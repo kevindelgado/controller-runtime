@@ -17,8 +17,12 @@ limitations under the License.
 package builder
 
 import (
+	"time"
+
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
+
+const defaultWaitTime = time.Minute
 
 // {{{ "Functional" Option Interfaces
 
@@ -74,5 +78,24 @@ func (w Predicates) ApplyToWatches(opts *WatchesInput) {
 var _ ForOption = &Predicates{}
 var _ OwnsOption = &Predicates{}
 var _ WatchesOption = &Predicates{}
+
+// ConditionallyRun runs the controller
+// condtionally on the existence of the forInput object
+// in the cluster's discovery doc, letting you start a
+// controller manager for a CRD not yet installed on the cluster.
+type ConditionallyRun struct {
+	WaitTime time.Duration
+}
+
+// ApplyToFor applies this configuration to the give forInput options,
+// setting the waitTime to the default wait time if it is unset.
+func (w ConditionallyRun) ApplyToFor(opts *ForInput) {
+	opts.conditionallyRun = true
+	if w.WaitTime == time.Duration(0) {
+		opts.waitTime = defaultWaitTime
+	} else {
+		opts.waitTime = w.WaitTime
+	}
+}
 
 // }}}
