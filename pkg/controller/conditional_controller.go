@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -64,8 +63,6 @@ type ConditionalController struct {
 
 	// WaitTime is how long to wait before rechecking the discovery doc.
 	WaitTime time.Duration
-
-	mu sync.Mutex
 }
 
 // StoppableController is a wrapper around Controller providing extra methods
@@ -98,14 +95,10 @@ func (c *ConditionalController) Start(stop <-chan struct{}) error {
 	errChan := make(chan error)
 	var presentStop chan struct{}
 	for {
-		c.mu.Lock()
-		//fmt.Printf("c.WaitTime = %+v\n", c.WaitTime)
 		select {
 		case err := <-errChan:
-			c.mu.Unlock()
 			return err
 		case <-stop:
-			c.mu.Unlock()
 			return nil
 		case <-time.After(c.WaitTime):
 			gvk, err := apiutil.GVKForObject(c.ConditionalOn, c.Scheme)
@@ -113,8 +106,6 @@ func (c *ConditionalController) Start(stop <-chan struct{}) error {
 				break
 			}
 			resources, err := c.DiscoveryClient.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
-			//fmt.Printf("gvk.GroupVersion().String() = %+v\n", gvk.GroupVersion().String())
-			//fmt.Printf("gvk.Kind = %+v\n", gvk.Kind)
 			if err != nil {
 				curInstalled = false
 			} else {
@@ -125,10 +116,7 @@ func (c *ConditionalController) Start(stop <-chan struct{}) error {
 					}
 				}
 			}
-			//fmt.Printf("prevInstalled = %+v\n", prevInstalled)
-			//fmt.Printf("curInstalled = %+v\n", curInstalled)
 			if !prevInstalled && curInstalled {
-				//fmt.Println("starting")
 				// Going from not installed -> installed.
 				// Start the runnable.
 				presentStop = make(chan struct{})
@@ -136,10 +124,8 @@ func (c *ConditionalController) Start(stop <-chan struct{}) error {
 				prevInstalled = true
 				go func() {
 					if err := c.Controller.Start(mergedStop); err != nil {
-						//fmt.Println("errored")
 						errChan <- err
 					}
-					//fmt.Println("Start returned nil")
 				}()
 			} else if prevInstalled && !curInstalled {
 				// Going from installed -> not installed.
@@ -147,7 +133,6 @@ func (c *ConditionalController) Start(stop <-chan struct{}) error {
 				// It's safe to remove the obj's informer because anything that is
 				// using it's informer will no longer work because the obj has been
 				// uninstalled from the cluster.
-				//fmt.Println("stopping")
 				c.Controller.ResetStart()
 				c.Controller.SaveWatches()
 				close(presentStop)
@@ -157,7 +142,6 @@ func (c *ConditionalController) Start(stop <-chan struct{}) error {
 				prevInstalled = false
 			}
 		}
-		c.mu.Unlock()
 	}
 
 }

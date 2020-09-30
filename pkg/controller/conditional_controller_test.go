@@ -96,28 +96,6 @@ var _ = Describe("controller.ConditionalController", func() {
 			}
 			Expect(m.Add(condCtrl)).NotTo(HaveOccurred())
 
-			//gvk, err := apiutil.GVKForObject(conditionalOn, m.GetScheme())
-			//Expect(err).NotTo(HaveOccurred())
-			//installed := true
-			//for installed {
-			//	resources, err := dc.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
-			//	Expect(err).NotTo(HaveOccurred())
-			//	fmt.Printf("main gvk.GroupVersion().String() = %+v\n", gvk.GroupVersion().String())
-			//	fmt.Printf("main gvk.Kind = %+v\n", gvk.Kind)
-			//	for _, res := range resources.APIResources {
-			//		if res.Kind == gvk.Kind {
-			//			fmt.Println("already INSTALLED!")
-			//			err = envtest.UninstallCRDs(cfg, crdOpts)
-			//			Expect(err).NotTo(HaveOccurred())
-			//			installed = true
-			//			fmt.Println("Better be uninstalled")
-			//			break
-
-			//		}
-			//	}
-
-			//}
-
 			// start the manager in a separate go routine
 			mgrStop := make(chan struct{})
 			testLoopStart := make(chan struct{})
@@ -144,25 +122,19 @@ var _ = Describe("controller.ConditionalController", func() {
 				for i := 0; i < 5; i++ {
 					if i%2 == 1 {
 						// install CRD
-						//fmt.Println("installing CRD")
 						crds, err := envtest.InstallCRDs(cfg, crdOpts)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(len(crds)).To(Equal(1))
 					} else if i > 0 {
 						// uninstall CRD
-						//fmt.Println("uninstalling CRD")
 						err = envtest.UninstallCRDs(cfg, crdOpts)
 						Expect(err).NotTo(HaveOccurred())
 					}
 					select {
 					case <-runCh:
-						//fmt.Println("START bumped")
-						//fmt.Printf("i = %+v\n", i)
 						//Expect(i % 2).To(Equal(1))
 						// CRD is installed
 					case <-time.After(60 * time.Millisecond):
-						//fmt.Println("NO start bumped")
-						//fmt.Printf("i = %+v\n", i)
 						//Expect(i % 2).To(Equal(0))
 						// CRD is NOT installed
 						fakeCtrl.noStartCount++
