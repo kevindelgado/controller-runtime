@@ -257,14 +257,6 @@ func (blder *Builder) doController(r reconcile.Reconciler) error {
 	}
 	ctrlOptions.Log = ctrlOptions.Log.WithValues("reconcilerGroup", gvk.Group, "reconcilerKind", gvk.Kind)
 
-	//if blder.forInput.conditionallyRun {
-	//	ctrlOptions.ConditionalOn = &blder.forInput.object
-	//	ctrlOptions.ConditionalWaitTime = blder.forInput.waitTime
-	//}
-
-	//blder.ctrl, err = newController(blder.getControllerName(gvk), blder.mgr, ctrlOptions)
-	//return err
-
 	// Build the base controller
 	baseController, err := controller.NewUnmanaged(blder.getControllerName(gvk), blder.mgr, ctrlOptions)
 	if err != nil {

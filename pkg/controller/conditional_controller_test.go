@@ -54,7 +54,7 @@ var _ = Describe("controller.ConditionalController", func() {
 
 	Describe("Start", func() {
 
-		FIt("should run manager for conditional runnables when corresponding CRD is not installed, installed, uninstalled and reinstalled", func(done Done) {
+		It("should run manager for conditional runnables when corresponding CRD is not installed, installed, uninstalled and reinstalled", func(done Done) {
 			fmt.Println("run the test")
 			// initinalize scheme, crdOpts
 			s := runtime.NewScheme()
