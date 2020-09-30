@@ -18,7 +18,7 @@ package controller
 
 import (
 	"context"
-	"fmt"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,20 +32,51 @@ import (
 )
 
 // TODO: Comment everything
+// ConditionalController is a helper that wraps a controller that
+// can be stopped and restarted (StoppableController).
+//
+// Unique to the ConditionalController is that only runs the underlying controller
+// when the object that controller watches (ConditionalOn), is installed in the cluster.
+//
+// Otherwise it will wait and periodically (WaitTime) check the discovery doc for
+// existence of the ConditionalOn, starting, stopping, and restarting the controller
+// as necessary based on the presence/absence of ConditionalOn.
 type ConditionalController struct {
-	Controller      StoppableController
-	Cache           cache.Cache
-	ConditionalOn   runtime.Object
+	// Controller is the underlying controller that contains the Start()
+	// to be ran when ConditionalOn exists in the cluster.
+	Controller StoppableController
+
+	// Cache is the manager's cache that must have the ConditionalOn object
+	// removed upon stopping the Controller.
+	Cache cache.Cache
+
+	// ConditionalOn is the object being controlled by the Controller
+	// and for whose existence in the cluster/discover doc is required in order
+	// for the Controller to be running.
+	ConditionalOn runtime.Object
+
+	// DiscoveryClient is used to query the discover doc for the existence
+	// of the ConditionalOn in the cluster.
 	DiscoveryClient *discovery.DiscoveryClient
-	Scheme          *runtime.Scheme
-	WaitTime        time.Duration
+
+	// Scheme helps convert between gvk and object.
+	Scheme *runtime.Scheme
+
+	// WaitTime is how long to wait before rechecking the discovery doc.
+	WaitTime time.Duration
+
+	mu sync.Mutex
 }
 
+// StoppableController is a wrapper around Controller providing extra methods
+// that allow for running the controller multiple times.
 type StoppableController interface {
 	Controller
 
+	// ResetStart sets Started to false to enable running Start on the controller again.
 	ResetStart()
 
+	// SaveWatches indicates that watches should not be cleared when the controller is stopped.
 	SaveWatches()
 }
 
@@ -59,30 +90,31 @@ func (c *ConditionalController) Watch(src source.Source, eventhandler handler.Ev
 	return c.Controller.Watch(src, eventhandler, predicates...)
 }
 
+// Start condtionally runs the underlying controller based on the existence of the ConditionalOn in the cluster.
+// In it's absence it waits for WaitTime before checking the discovery doc again.
 func (c *ConditionalController) Start(stop <-chan struct{}) error {
-	fmt.Println("Start! this is it")
 	prevInstalled := false
 	curInstalled := false
 	errChan := make(chan error)
 	var presentStop chan struct{}
 	for {
-		//fmt.Println("looping")
-		//c.mu.Lock()
+		c.mu.Lock()
+		//fmt.Printf("c.WaitTime = %+v\n", c.WaitTime)
 		select {
 		case err := <-errChan:
+			c.mu.Unlock()
 			return err
 		case <-stop:
-			//fmt.Println("stopping")
+			c.mu.Unlock()
 			return nil
 		case <-time.After(c.WaitTime):
-			//fmt.Println("wait done")
 			gvk, err := apiutil.GVKForObject(c.ConditionalOn, c.Scheme)
 			if err != nil {
-				//log.Error(err, "could not resolve gvk for conditional runnable obj")
-				//c.mu.Unlock()
 				break
 			}
 			resources, err := c.DiscoveryClient.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
+			//fmt.Printf("gvk.GroupVersion().String() = %+v\n", gvk.GroupVersion().String())
+			//fmt.Printf("gvk.Kind = %+v\n", gvk.Kind)
 			if err != nil {
 				curInstalled = false
 			} else {
@@ -93,44 +125,44 @@ func (c *ConditionalController) Start(stop <-chan struct{}) error {
 					}
 				}
 			}
-			//fmt.Printf("prevInstalled, curInstalled = %+v, %+v\n", prevInstalled, curInstalled)
+			//fmt.Printf("prevInstalled = %+v\n", prevInstalled)
+			//fmt.Printf("curInstalled = %+v\n", curInstalled)
 			if !prevInstalled && curInstalled {
-				//fmt.Println("Installed!!!")
+				//fmt.Println("starting")
 				// Going from not installed -> installed.
 				// Start the runnable.
 				presentStop = make(chan struct{})
 				mergedStop := mergeChan(presentStop, stop)
+				prevInstalled = true
 				go func() {
 					if err := c.Controller.Start(mergedStop); err != nil {
+						//fmt.Println("errored")
 						errChan <- err
 					}
+					//fmt.Println("Start returned nil")
 				}()
-				prevInstalled = true
 			} else if prevInstalled && !curInstalled {
 				// Going from installed -> not installed.
 				// Stop the runnable and remove the obj's informer from the cache.
 				// It's safe to remove the obj's informer because anything that is
 				// using it's informer will no longer work because the obj has been
 				// uninstalled from the cluster.
-				//fmt.Println("UNINSTALLED")
+				//fmt.Println("stopping")
 				c.Controller.ResetStart()
 				c.Controller.SaveWatches()
 				close(presentStop)
-				//if err := c.Controller.Cache.Remove(c.ConditionalOn); err != nil {
 				if err := c.Cache.Remove(c.ConditionalOn); err != nil {
-					//if err := c.kind.GetCache().Remove(c.ConditionalOn); err != nil {
-					//fmt.Printf("CACHE err = %+v\n", err)
 					return err
 				}
 				prevInstalled = false
 			}
 		}
-		//c.mu.Unlock()
-		//fmt.Println("finished loop")
+		c.mu.Unlock()
 	}
 
 }
 
+// mergeChan return channel fires when either channel a or channel b is fired.
 func mergeChan(a, b <-chan struct{}) chan struct{} {
 	out := make(chan struct{})
 	go func() {

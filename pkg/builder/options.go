@@ -87,6 +87,8 @@ type ConditionallyRun struct {
 	WaitTime time.Duration
 }
 
+// ApplyToFor applies this configuration to the give forInput options,
+// setting the waitTime to the default wait time if it is unset.
 func (w ConditionallyRun) ApplyToFor(opts *ForInput) {
 	opts.conditionallyRun = true
 	if w.WaitTime == time.Duration(0) {

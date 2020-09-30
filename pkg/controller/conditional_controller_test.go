@@ -18,7 +18,6 @@ package controller_test
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"time"
 
@@ -55,7 +54,6 @@ var _ = Describe("controller.ConditionalController", func() {
 	Describe("Start", func() {
 
 		It("should run manager for conditional runnables when corresponding CRD is not installed, installed, uninstalled and reinstalled", func(done Done) {
-			fmt.Println("run the test")
 			// initinalize scheme, crdOpts
 			s := runtime.NewScheme()
 			f := &foo.Foo{}
@@ -70,11 +68,8 @@ var _ = Describe("controller.ConditionalController", func() {
 			// create manager
 			m, err := manager.New(cfg, options)
 			Expect(err).NotTo(HaveOccurred())
-			//for _, cb := range callbacks {
-			//	cb(m)
-			//}
 
-			// create conditional runnable, add it to the manager
+			// create conditional controller, add it to the manager
 			var conditionalOn runtime.Object
 			conditionalOn = &foo.Foo{}
 			runCh := make(chan int)
@@ -83,62 +78,93 @@ var _ = Describe("controller.ConditionalController", func() {
 				Reconciler: rec,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			//var internalCtrl *intctl.Controller
 			internalCtrl, ok := ctrl.(*intctl.Controller)
 			Expect(ok).To(BeTrue())
 			stopCtrl := &fakeStoppableController{
 				controller: internalCtrl,
 				runCh:      runCh,
 			}
+
+			dc := discovery.NewDiscoveryClientForConfigOrDie(cfg)
 			condCtrl := &controller.ConditionalController{
 				Controller:      stopCtrl,
 				Cache:           cache,
 				ConditionalOn:   conditionalOn,
-				DiscoveryClient: discovery.NewDiscoveryClientForConfigOrDie(cfg),
+				DiscoveryClient: dc,
 				Scheme:          m.GetScheme(),
-				WaitTime:        5 * time.Millisecond,
+				WaitTime:        20 * time.Millisecond,
 			}
 			Expect(m.Add(condCtrl)).NotTo(HaveOccurred())
 
+			//gvk, err := apiutil.GVKForObject(conditionalOn, m.GetScheme())
+			//Expect(err).NotTo(HaveOccurred())
+			//installed := true
+			//for installed {
+			//	resources, err := dc.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
+			//	Expect(err).NotTo(HaveOccurred())
+			//	fmt.Printf("main gvk.GroupVersion().String() = %+v\n", gvk.GroupVersion().String())
+			//	fmt.Printf("main gvk.Kind = %+v\n", gvk.Kind)
+			//	for _, res := range resources.APIResources {
+			//		if res.Kind == gvk.Kind {
+			//			fmt.Println("already INSTALLED!")
+			//			err = envtest.UninstallCRDs(cfg, crdOpts)
+			//			Expect(err).NotTo(HaveOccurred())
+			//			installed = true
+			//			fmt.Println("Better be uninstalled")
+			//			break
+
+			//		}
+			//	}
+
+			//}
+
 			// start the manager in a separate go routine
 			mgrStop := make(chan struct{})
+			testLoopStart := make(chan struct{})
 			go func() {
 				defer GinkgoRecover()
+				close(testLoopStart)
 				Expect(m.Start(mgrStop)).NotTo(HaveOccurred())
 				close(runCh)
 			}()
 
 			// run the test go routine to iterate through the situations where
 			// the CRD is
-			// 1) not installed
-			// 2) installed
-			// 3) uninstalled
-			// 4) reinstalled
-			// 5) uninstalled for test cleanup
+			// 0) not installed
+			// 1) installed
+			// 2) uninstalled
+			// 3) reinstalled
+			// 4) uninstalled for test cleanup
 			testLoopDone := make(chan struct{})
 			fakeCtrl, ok := condCtrl.Controller.(*fakeStoppableController)
 			Expect(ok).To(BeTrue())
 			go func() {
 				defer GinkgoRecover()
-				//<-m.(*controllerManager).elected
+				<-testLoopStart
 				for i := 0; i < 5; i++ {
 					if i%2 == 1 {
 						// install CRD
+						//fmt.Println("installing CRD")
 						crds, err := envtest.InstallCRDs(cfg, crdOpts)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(len(crds)).To(Equal(1))
 					} else if i > 0 {
 						// uninstall CRD
+						//fmt.Println("uninstalling CRD")
 						err = envtest.UninstallCRDs(cfg, crdOpts)
 						Expect(err).NotTo(HaveOccurred())
 					}
 					select {
 					case <-runCh:
-						// CRD is installed
+						//fmt.Println("START bumped")
+						//fmt.Printf("i = %+v\n", i)
 						//Expect(i % 2).To(Equal(1))
-					case <-time.After(50 * time.Millisecond):
-						// CRD is NOT installed
+						// CRD is installed
+					case <-time.After(60 * time.Millisecond):
+						//fmt.Println("NO start bumped")
+						//fmt.Printf("i = %+v\n", i)
 						//Expect(i % 2).To(Equal(0))
+						// CRD is NOT installed
 						fakeCtrl.noStartCount++
 					}
 				}
@@ -146,12 +172,8 @@ var _ = Describe("controller.ConditionalController", func() {
 				close(testLoopDone)
 			}()
 			<-testLoopDone
-			fmt.Println("check expectations")
-			fmt.Printf("fakeCtrl.startCount = %+v\n", fakeCtrl.startCount)
-			fmt.Printf("fakeCtrl.noStartCount = %+v\n", fakeCtrl.noStartCount)
 			Expect(fakeCtrl.startCount).To(Equal(2))
 			Expect(fakeCtrl.noStartCount).To(Equal(3))
-			fmt.Println("done the test!")
 			close(done)
 		})
 
@@ -159,14 +181,13 @@ var _ = Describe("controller.ConditionalController", func() {
 })
 
 type fakeStoppableController struct {
-	controller controller.StoppableController
-	//conditionalOn runtime.Object
+	controller   controller.StoppableController
 	startCount   int
 	noStartCount int
 	runCh        chan int
 }
 
-//Controller
+// Methods for fakeStoppableController to conform to the StoppableController interface
 func (f *fakeStoppableController) ResetStart() {
 	f.controller.ResetStart()
 }
@@ -176,6 +197,7 @@ func (f *fakeStoppableController) SaveWatches() {
 }
 
 func (f *fakeStoppableController) Start(s <-chan struct{}) error {
+	//fmt.Println("bumping start")
 	f.startCount++
 	f.runCh <- 1
 	return nil

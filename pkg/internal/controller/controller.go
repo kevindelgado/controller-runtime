@@ -72,6 +72,7 @@ type Controller struct {
 	// Started is true if the Controller has been Started
 	Started bool
 
+	// saveWatches indicates not to clear startWatches when the controller is stopped.
 	saveWatches bool
 
 	// TODO(community): Consider initializing a logger with the Controller Name as the tag
@@ -177,8 +178,9 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 		// We should usually hold watches more than necessary, each watch source can hold a backing cache,
 		// which won't be garbage collected if we hold a reference to it.
 
-		// The exception to this is when the controller is configured as a conditional runnable, in which
-		// case it needs to knowledge of the watches in the event that the controller is restarted.
+		// The exception to this is when the saveWatches is set to true,
+		// meaning the controller is intending to run Start() again.
+		// In this case it needs to knowledge of the watches for when the controller is restarted.
 		if !c.saveWatches {
 			c.startWatches = nil
 		}
@@ -301,10 +303,12 @@ func (c *Controller) updateMetrics(reconcileTime time.Duration) {
 	ctrlmetrics.ReconcileTime.WithLabelValues(c.Name).Observe(reconcileTime.Seconds())
 }
 
+// ResetStart sets Started to false to enable running Start on the controller again.
 func (c *Controller) ResetStart() {
 	c.Started = false
 }
 
+// SaveWatches indicates that watches should not be cleared when the controller is stopped.
 func (c *Controller) SaveWatches() {
 	c.saveWatches = true
 }
