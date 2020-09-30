@@ -24,10 +24,12 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	intctrl "sigs.k8s.io/controller-runtime/pkg/internal/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -255,12 +257,45 @@ func (blder *Builder) doController(r reconcile.Reconciler) error {
 	}
 	ctrlOptions.Log = ctrlOptions.Log.WithValues("reconcilerGroup", gvk.Group, "reconcilerKind", gvk.Kind)
 
-	if blder.forInput.conditionallyRun {
-		ctrlOptions.ConditionalOn = &blder.forInput.object
-		ctrlOptions.ConditionalWaitTime = blder.forInput.waitTime
+	//if blder.forInput.conditionallyRun {
+	//	ctrlOptions.ConditionalOn = &blder.forInput.object
+	//	ctrlOptions.ConditionalWaitTime = blder.forInput.waitTime
+	//}
+
+	//blder.ctrl, err = newController(blder.getControllerName(gvk), blder.mgr, ctrlOptions)
+	//return err
+
+	// Build the base controller
+	baseController, err := controller.NewUnmanaged(blder.getControllerName(gvk), blder.mgr, ctrlOptions)
+	if err != nil {
+		return err
 	}
 
-	// Build the controller and return.
-	blder.ctrl, err = newController(blder.getControllerName(gvk), blder.mgr, ctrlOptions)
-	return err
+	// Set the builder controller to either the base controller or wrapped as a ConditionalController.
+	var ctrl controller.Controller
+	if blder.forInput.conditionallyRun {
+		fmt.Println("wohoo conditionally!")
+		fmt.Printf("blder.forInput.waitTime = %+v\n", blder.forInput.waitTime)
+		dc, err := discovery.NewDiscoveryClientForConfig(blder.mgr.GetConfig())
+		if err != nil {
+			return err
+		}
+		ic := *baseController.(*intctrl.Controller)
+		ic.SaveWatches = true
+		cache := blder.mgr.GetCache()
+		ctrl = &controller.ConditionalController{
+			Cache:           &cache,
+			ConditionalOn:   blder.forInput.object,
+			Controller:      ic,
+			DiscoveryClient: dc,
+			Scheme:          blder.mgr.GetScheme(),
+			WaitTime:        blder.forInput.waitTime,
+		}
+
+	} else {
+		ctrl = baseController
+	}
+	blder.ctrl = ctrl
+
+	return blder.mgr.Add(ctrl)
 }

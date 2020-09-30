@@ -56,6 +56,8 @@ type Controller struct {
 	// the discovery doc for the existence of the CondtionalOn object.
 	ConditionalWaitTime time.Duration
 
+	SaveWatches bool
+
 	// Reconciler is a function that can be called at any time with the Name / Namespace of an object and
 	// ensures that the state of the system matches the state specified in the object.
 	// Defaults to the DefaultReconcileFunc.
@@ -187,7 +189,7 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 
 		// The exception to this is when the controller is configured as a conditional runnable, in which
 		// case it needs to knowledge of the watches in the event that the controller is restarted.
-		if c.ConditionalOn == nil {
+		if !c.SaveWatches {
 			c.startWatches = nil
 		}
 
