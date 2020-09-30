@@ -280,11 +280,10 @@ func (blder *Builder) doController(r reconcile.Reconciler) error {
 		if err != nil {
 			return err
 		}
-		ic := *baseController.(*intctrl.Controller)
-		ic.SaveWatches = true
-		cache := blder.mgr.GetCache()
+		ic := baseController.(*intctrl.Controller)
+		ic.SaveWatches()
 		ctrl = &controller.ConditionalController{
-			Cache:           &cache,
+			Cache:           blder.mgr.GetCache(),
 			ConditionalOn:   blder.forInput.object,
 			Controller:      ic,
 			DiscoveryClient: dc,

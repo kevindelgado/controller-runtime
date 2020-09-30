@@ -26,31 +26,41 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	intctrl "sigs.k8s.io/controller-runtime/pkg/internal/controller"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
+// TODO: Comment everything
 type ConditionalController struct {
-	Controller      intctrl.Controller
-	Cache           *cache.Cache
+	Controller      StoppableController
+	Cache           cache.Cache
 	ConditionalOn   runtime.Object
 	DiscoveryClient *discovery.DiscoveryClient
 	Scheme          *runtime.Scheme
 	WaitTime        time.Duration
 }
 
+type StoppableController interface {
+	Controller
+
+	ResetStart()
+
+	SaveWatches()
+}
+
+// Reconcile implements the Controller interface.
 func (c *ConditionalController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	return c.Controller.Reconcile(ctx, req)
 }
 
+// Watch implements the Controller interface.
 func (c *ConditionalController) Watch(src source.Source, eventhandler handler.EventHandler, predicates ...predicate.Predicate) error {
 	return c.Controller.Watch(src, eventhandler, predicates...)
 }
 
 func (c *ConditionalController) Start(stop <-chan struct{}) error {
-	fmt.Println("Start! this is it boys")
+	fmt.Println("Start! this is it")
 	prevInstalled := false
 	curInstalled := false
 	errChan := make(chan error)
@@ -103,14 +113,15 @@ func (c *ConditionalController) Start(stop <-chan struct{}) error {
 				// using it's informer will no longer work because the obj has been
 				// uninstalled from the cluster.
 				//fmt.Println("UNINSTALLED")
+				c.Controller.ResetStart()
+				c.Controller.SaveWatches()
 				close(presentStop)
 				//if err := c.Controller.Cache.Remove(c.ConditionalOn); err != nil {
-				if err := (*c.Cache).Remove(c.ConditionalOn); err != nil {
+				if err := c.Cache.Remove(c.ConditionalOn); err != nil {
 					//if err := c.kind.GetCache().Remove(c.ConditionalOn); err != nil {
 					//fmt.Printf("CACHE err = %+v\n", err)
 					return err
 				}
-				c.Controller.Started = false
 				prevInstalled = false
 			}
 		}

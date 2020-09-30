@@ -56,8 +56,6 @@ type Controller struct {
 	// the discovery doc for the existence of the CondtionalOn object.
 	ConditionalWaitTime time.Duration
 
-	SaveWatches bool
-
 	// Reconciler is a function that can be called at any time with the Name / Namespace of an object and
 	// ensures that the state of the system matches the state specified in the object.
 	// Defaults to the DefaultReconcileFunc.
@@ -83,6 +81,8 @@ type Controller struct {
 
 	// Started is true if the Controller has been Started
 	Started bool
+
+	saveWatches bool
 
 	// TODO(community): Consider initializing a logger with the Controller Name as the tag
 
@@ -189,7 +189,7 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 
 		// The exception to this is when the controller is configured as a conditional runnable, in which
 		// case it needs to knowledge of the watches in the event that the controller is restarted.
-		if !c.SaveWatches {
+		if !c.saveWatches {
 			c.startWatches = nil
 		}
 
@@ -323,4 +323,12 @@ func (c *Controller) InjectFunc(f inject.Func) error {
 // updateMetrics updates prometheus metrics within the controller
 func (c *Controller) updateMetrics(reconcileTime time.Duration) {
 	ctrlmetrics.ReconcileTime.WithLabelValues(c.Name).Observe(reconcileTime.Seconds())
+}
+
+func (c *Controller) ResetStart() {
+	c.Started = false
+}
+
+func (c *Controller) SaveWatches() {
+	c.saveWatches = true
 }
