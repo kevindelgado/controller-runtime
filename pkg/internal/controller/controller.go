@@ -72,6 +72,9 @@ type Controller struct {
 	// Started is true if the Controller has been Started
 	Started bool
 
+	// saveWatches indicates not to clear startWatches when the controller is stopped.
+	saveWatches bool
+
 	// TODO(community): Consider initializing a logger with the Controller Name as the tag
 
 	// startWatches maintains a list of sources, handlers, and predicates to start when the controller is started.
@@ -172,9 +175,15 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 
 		// All the watches have been started, we can reset the local slice.
 		//
-		// We should never hold watches more than necessary, each watch source can hold a backing cache,
+		// We should usually hold watches more than necessary, each watch source can hold a backing cache,
 		// which won't be garbage collected if we hold a reference to it.
-		c.startWatches = nil
+
+		// The exception to this is when the saveWatches is set to true,
+		// meaning the controller is intending to run Start() again.
+		// In this case it needs to knowledge of the watches for when the controller is restarted.
+		if !c.saveWatches {
+			c.startWatches = nil
+		}
 
 		if c.JitterPeriod == 0 {
 			c.JitterPeriod = 1 * time.Second
@@ -292,4 +301,14 @@ func (c *Controller) InjectFunc(f inject.Func) error {
 // updateMetrics updates prometheus metrics within the controller
 func (c *Controller) updateMetrics(reconcileTime time.Duration) {
 	ctrlmetrics.ReconcileTime.WithLabelValues(c.Name).Observe(reconcileTime.Seconds())
+}
+
+// ResetStart sets Started to false to enable running Start on the controller again.
+func (c *Controller) ResetStart() {
+	c.Started = false
+}
+
+// SaveWatches indicates that watches should not be cleared when the controller is stopped.
+func (c *Controller) SaveWatches() {
+	c.saveWatches = true
 }
