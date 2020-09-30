@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -85,6 +86,11 @@ func (c *ConditionalController) Reconcile(ctx context.Context, req reconcile.Req
 // Watch implements the Controller interface.
 func (c *ConditionalController) Watch(src source.Source, eventhandler handler.EventHandler, predicates ...predicate.Predicate) error {
 	return c.Controller.Watch(src, eventhandler, predicates...)
+}
+
+// GetLogger returns this controller's logger.
+func (c *ConditionalController) GetLogger() logr.Logger {
+	return c.Controller.GetLogger()
 }
 
 // Start condtionally runs the underlying controller based on the existence of the ConditionalOn in the cluster.
