@@ -63,10 +63,91 @@ func newSpecificInformersMap(config *rest.Config,
 	return ip
 }
 
+type CountingInformer interface {
+	cache.SharedIndexInformer
+	CountEventHandlers() int
+	RemoveEventHandler(id int) error
+	RunWithStopOptions(stopOptions StopOptions) StopReason
+}
+
+//TODO: comment
+// we can get rid of this if apimachinery adds the ability to retrieve this from the SharedIndexInformer
+// but until then, we have to track it ourselves
+// TODO: split into separate file
+type HandlerCountingInformer struct {
+	// Informer is the cached informer
+	informer cache.SharedIndexInformer
+
+	// count indicates the number of EventHandlers registered on the informer
+	count int
+}
+
+//func (i *HandlerCountingInformer) ModifyEventHandlerCount(delta int) int {
+//	i.count += delta
+//	return i.count
+//}
+
+func (i *HandlerCountingInformer) RunWithStopOptions(stopOptions StopOptions) StopReason {
+	i.Run(stopOptions.StopChannel)
+	return nil
+}
+func (i *HandlerCountingInformer) RemoveEventHandler(id int) error {
+	i.count--
+	fmt.Printf("decrement, count is %+v\n", i.count)
+	return nil
+}
+
+func (i *HandlerCountingInformer) AddEventHandler(handler cache.ResourceEventHandler) {
+	i.count++
+	fmt.Printf("increment, count is %+v\n", i.count)
+	i.informer.AddEventHandler(handler)
+}
+
+func (i *HandlerCountingInformer) CountEventHandlers() int {
+	return i.count
+}
+
+func (i *HandlerCountingInformer) AddEventHandlerWithResyncPeriod(handler cache.ResourceEventHandler, resyncPeriod time.Duration) {
+	i.count++
+	i.informer.AddEventHandlerWithResyncPeriod(handler, resyncPeriod)
+}
+func (i *HandlerCountingInformer) AddIndexers(indexers cache.Indexers) error {
+	return i.informer.AddIndexers(indexers)
+}
+
+func (i *HandlerCountingInformer) HasSynced() bool {
+	return i.informer.HasSynced()
+}
+
+func (i *HandlerCountingInformer) GetStore() cache.Store {
+	return i.informer.GetStore()
+}
+
+func (i *HandlerCountingInformer) GetController() cache.Controller {
+	return i.informer.GetController()
+}
+
+func (i *HandlerCountingInformer) LastSyncResourceVersion() string {
+	return i.informer.LastSyncResourceVersion()
+}
+
+func (i *HandlerCountingInformer) SetWatchErrorHandler(handler cache.WatchErrorHandler) error {
+	return i.informer.SetWatchErrorHandler(handler)
+}
+func (i *HandlerCountingInformer) GetIndexer() cache.Indexer {
+	return i.informer.GetIndexer()
+}
+func (i *HandlerCountingInformer) Run(stopCh <-chan struct{}) {
+	i.informer.Run(stopCh)
+}
+
 // MapEntry contains the cached data for an Informer
 type MapEntry struct {
-	// Informer is the cached informer
-	Informer cache.SharedIndexInformer
+	//Informer is the HandlerCountingInformer
+	// Informer *HandlerCountingInformer
+
+	Informer CountingInformer
+	//Informer crcache.Informer
 
 	// CacheReader wraps Informer and implements the CacheReader interface for a single type
 	Reader CacheReader
@@ -124,10 +205,19 @@ type specificInformersMap struct {
 	namespace string
 }
 
+type StopOptions struct {
+	StopChannel <-chan struct{}
+
+	OnListError func(error) bool
+}
+
+type StopReason error
+
 // Start starts the informer managed by a MapEntry.
 // Blocks until the informer stops. The informer can be stopped
 // either individually (via the entry's stop channel) or globally
 // via the provided stop argument.
+
 func (e *MapEntry) Start(stop <-chan struct{}) {
 	// Stop on either the whole map stopping or just this informer being removed.
 	internalStop, cancel := anyOf(stop, e.stop)
@@ -135,8 +225,18 @@ func (e *MapEntry) Start(stop <-chan struct{}) {
 	e.Informer.Run(internalStop)
 }
 
+func (e *MapEntry) StartWithStopOptions(stopOptions StopOptions) {
+	// Stop on either the whole map stopping or just this informer being removed.
+	internalStop, cancel := anyOf(stopOptions.StopChannel, e.stop)
+	stopOptions.StopChannel = internalStop
+	defer cancel()
+	// TODO(maybe): add dbsmith advice here of wrapping stops to avoid goro leak
+	e.Informer.RunWithStopOptions(stopOptions)
+}
+
 // Start calls Run on each of the informers and sets started to true.  Blocks on the context.
 // It doesn't return start because it can't return an error, and it's not a runnable directly.
+// TODO: take in start options, bubble up to builder
 func (ip *specificInformersMap) Start(ctx context.Context) {
 	func() {
 		ip.mu.Lock()
@@ -147,14 +247,27 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 
 		// Start each informer
 		for _, entry := range ip.informersByGVK {
-			go entry.Start(ctx.Done())
+			fmt.Printf("entry = %+v\n", entry)
+			//go entry.Start(ctx.Done())
+			go entry.StartWithStopOptions(StopOptions{
+				StopChannel: ctx.Done(),
+			})
 		}
 
 		// Set started to true so we immediately start any informers added later.
 		ip.started = true
 		close(ip.startWait)
 	}()
+	fmt.Println("waiting after start")
 	<-ctx.Done()
+	fmt.Println("start done")
+}
+
+// StartWithStopOptions exposes a way to start an informer with user defined stopOptions
+// We would plumb stopOptions from the builder (where the user would define them), down here through to the
+// informer.
+func (ip *specificInformersMap) StartWithStopOptions(ctx context.Context, stopOptions StopOptions) {
+	// TODO: implement once SharedIndexInformer in client-go supports RunWithStopOptions
 }
 
 func (ip *specificInformersMap) waitForStarted(ctx context.Context) bool {
@@ -230,7 +343,7 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 		cache.NamespaceIndex: cache.MetaNamespaceIndexFunc,
 	})
 	i := &MapEntry{
-		Informer: ni,
+		Informer: &HandlerCountingInformer{ni, 0},
 		Reader:   CacheReader{indexer: ni.GetIndexer(), groupVersionKind: gvk},
 		stop:     make(chan struct{}),
 	}
@@ -241,21 +354,34 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	// can you add eventhandlers?
 	if ip.started {
 		go i.Start(ip.stop)
+		//go i.Start(StopOptions{
+		//	StopChannel: ip.stop,
+		//})
 	}
 	return i, ip.started, nil
 }
 
 // Remove removes an informer entry and stops it if it was running.
-func (ip *specificInformersMap) Remove(gvk schema.GroupVersionKind) {
+func (ip *specificInformersMap) Remove(gvk schema.GroupVersionKind) error {
 	ip.mu.Lock()
 	defer ip.mu.Unlock()
 
 	entry, ok := ip.informersByGVK[gvk]
 	if !ok {
-		return
+		return nil
 	}
+
+	chInformer, ok := entry.Informer.(*HandlerCountingInformer)
+	if !ok {
+		return fmt.Errorf("entry informer is not a HandlerCountingInformer")
+	}
+	if chInformer.CountEventHandlers() != 0 {
+		return fmt.Errorf("attempting to remove informer with %d references", chInformer.CountEventHandlers())
+	}
+
 	close(entry.stop)
 	delete(ip.informersByGVK, gvk)
+	return nil
 }
 
 // newListWatch returns a new ListWatch object that can be used to create a SharedIndexInformer.
