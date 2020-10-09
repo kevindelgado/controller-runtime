@@ -262,16 +262,22 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 }
 
 // Remove removes an informer entry and stops it if it was running.
-func (ip *specificInformersMap) Remove(gvk schema.GroupVersionKind) {
+func (ip *specificInformersMap) Remove(gvk schema.GroupVersionKind) error {
 	ip.mu.Lock()
 	defer ip.mu.Unlock()
 
 	entry, ok := ip.informersByGVK[gvk]
 	if !ok {
-		return
+		return nil
 	}
+
+	if entry.Informer.ModifyEventHandlerCount(0) != 0 {
+		return fmt.Errorf("attempting to remove informer with %d references", entry.Informer.ModifyEventHandlerCount(0))
+	}
+
 	close(entry.stop)
 	delete(ip.informersByGVK, gvk)
+	return nil
 }
 
 // newListWatch returns a new ListWatch object that can be used to create a SharedIndexInformer.
