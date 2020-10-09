@@ -63,10 +63,26 @@ func newSpecificInformersMap(config *rest.Config,
 	return ip
 }
 
+//TODO: comment
+// we can get rid of this if apimachinery adds the ability to retrieve this from the SharedIndexInformer
+// but until then, we have to track it ourselves
+type HandlerCountingInformer struct {
+	// Informer is the cached informer
+	cache.SharedIndexInformer
+
+	// count indicates the number of EventHandlers registered on the informer
+	count int
+}
+
+func (i *HandlerCountingInformer) ModifyEventHandlerCount(delta int) int {
+	i.count += delta
+	return i.count
+}
+
 // MapEntry contains the cached data for an Informer
 type MapEntry struct {
-	// Informer is the cached informer
-	Informer cache.SharedIndexInformer
+	//Informer is the HandlerCountingInformer
+	Informer *HandlerCountingInformer
 
 	// CacheReader wraps Informer and implements the CacheReader interface for a single type
 	Reader CacheReader
@@ -212,7 +228,7 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 		cache.NamespaceIndex: cache.MetaNamespaceIndexFunc,
 	})
 	i := &MapEntry{
-		Informer: ni,
+		Informer: &HandlerCountingInformer{ni, 0},
 		Reader:   CacheReader{indexer: ni.GetIndexer(), groupVersionKind: gvk},
 	}
 	ip.informersByGVK[gvk] = i
