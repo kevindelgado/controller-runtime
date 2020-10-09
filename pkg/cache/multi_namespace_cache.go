@@ -94,6 +94,11 @@ func (c *multiNamespaceCache) GetInformerForKind(ctx context.Context, gvk schema
 	return &multiNamespaceInformer{namespaceToInformer: informers}, nil
 }
 
+// TODO: what do we need to do for multi-namspace cache wrt to MEHC()?
+func (c *multiNamespaceCache) ModifyEventHandlerCount(obj runtime.Object, delta int) int {
+	return 0
+}
+
 func (c *multiNamespaceCache) Start(ctx context.Context) error {
 	for ns, cache := range c.namespaceToCache {
 		go func(ns string, cache Cache) {

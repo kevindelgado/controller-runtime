@@ -67,6 +67,16 @@ type Informers interface {
 
 	// Informers knows how to add indices to the caches (informers) that it manages.
 	client.FieldIndexer
+
+	// ModifyEventHandlerCount updateds and retrieves the number of references for an informer.
+	// Passing a positive delta increments the EventHandler referece count a negative delta
+	// decrements it (by delta) and a delta of 0 is just a getter.
+
+	// This is just a hacky way to test out ref counting without having to pipe a bunch of
+	// ref counting functions down the stack.
+
+	// Alternatly, we could have sepearte inc, dec, get functions
+	ModifyEventHandlerCount(obj runtime.Object, delta int) int
 }
 
 // Informer - informer allows you interact with the underlying informer

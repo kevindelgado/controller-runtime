@@ -70,6 +70,10 @@ type MapEntry struct {
 
 	// CacheReader wraps Informer and implements the CacheReader interface for a single type
 	Reader CacheReader
+
+	// we can get rid of this if apimachinery adds the ability to retrieve this from the SharedIndexInformer
+	// but until then, we have to track it ourselves
+	refCount int
 }
 
 // specificInformersMap create and caches Informers for (runtime.Object, schema.GroupVersionKind) pairs.
@@ -119,6 +123,11 @@ type specificInformersMap struct {
 	// namespace is the namespace that all ListWatches are restricted to
 	// default or empty string means all namespaces
 	namespace string
+}
+
+func (e *MapEntry) ModifyEventHandlerCount(delta int) int {
+	e.refCount += delta
+	return e.refCount
 }
 
 // Start calls Run on each of the informers and sets started to true.  Blocks on the context.
@@ -189,6 +198,16 @@ func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersion
 	}
 
 	return started, i, nil
+}
+
+func (ip *specificInformersMap) ModifyEventHandlerCount(gvk schema.GroupVersionKind, delta int) int {
+	entry, ok := ip.informersByGVK[gvk]
+	if !ok {
+		return 0
+	}
+
+	return entry.ModifyEventHandlerCount(delta)
+
 }
 
 func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, obj runtime.Object) (*MapEntry, bool, error) {
