@@ -73,6 +73,10 @@ type MapEntry struct {
 
 	// Stop can be used to stop this individual informer without stopping the entire specificInformersMap.
 	stop chan struct{}
+
+	// we can get rid of this if apimachinery adds the ability to retrieve this from the SharedIndexInformer
+	// but until then, we have to track it ourselves
+	refCount int
 }
 
 // specificInformersMap create and caches Informers for (runtime.Object, schema.GroupVersionKind) pairs.
@@ -122,6 +126,11 @@ type specificInformersMap struct {
 	// namespace is the namespace that all ListWatches are restricted to
 	// default or empty string means all namespaces
 	namespace string
+}
+
+func (e *MapEntry) ModifyEventHandlerCount(delta int) int {
+	e.refCount += delta
+	return e.refCount
 }
 
 // Start starts the informer managed by a MapEntry.
@@ -246,16 +255,32 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 }
 
 // Remove removes an informer entry and stops it if it was running.
-func (ip *specificInformersMap) Remove(gvk schema.GroupVersionKind) {
+func (ip *specificInformersMap) Remove(gvk schema.GroupVersionKind) error {
 	ip.mu.Lock()
 	defer ip.mu.Unlock()
 
 	entry, ok := ip.informersByGVK[gvk]
 	if !ok {
-		return
+		return nil
 	}
+
+	if entry.refCount != 0 {
+		return fmt.Errorf("attempting to remove informer with %d references", entry.refCount)
+	}
+
 	close(entry.stop)
 	delete(ip.informersByGVK, gvk)
+	return nil
+}
+
+func (ip *specificInformersMap) ModifyEventHandlerCount(gvk schema.GroupVersionKind, delta int) int {
+	entry, ok := ip.informersByGVK[gvk]
+	if !ok {
+		return 0
+	}
+
+	return entry.ModifyEventHandlerCount(delta)
+
 }
 
 // newListWatch returns a new ListWatch object that can be used to create a SharedIndexInformer.

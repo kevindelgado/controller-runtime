@@ -70,6 +70,10 @@ type Informers interface {
 
 	// Informers knows how to add indices to the caches (informers) that it manages.
 	client.FieldIndexer
+
+	// ModifyEventHandlerCount retrieves the number of references for an informer
+	// Alternatly, we could have sepearte inc, dec, get functions
+	ModifyEventHandlerCount(obj runtime.Object, delta int) int
 }
 
 // Informer - informer allows you interact with the underlying informer

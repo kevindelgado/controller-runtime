@@ -93,16 +93,29 @@ func (m *InformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj
 }
 
 // Remove will remove an new Informer from the InformersMap and stop it if it exists.
-func (m *InformersMap) Remove(gvk schema.GroupVersionKind, obj runtime.Object) {
+func (m *InformersMap) Remove(gvk schema.GroupVersionKind, obj runtime.Object) error {
 	_, isUnstructured := obj.(*unstructured.Unstructured)
 	_, isUnstructuredList := obj.(*unstructured.UnstructuredList)
 	isUnstructured = isUnstructured || isUnstructuredList
 
 	switch {
 	case isUnstructured:
-		m.unstructured.Remove(gvk)
+		return m.unstructured.Remove(gvk)
 	default:
-		m.structured.Remove(gvk)
+		return m.structured.Remove(gvk)
+	}
+}
+
+func (m *InformersMap) ModifyEventHandlerCount(gvk schema.GroupVersionKind, obj runtime.Object, delta int) int {
+	_, isUnstructured := obj.(*unstructured.Unstructured)
+	_, isUnstructuredList := obj.(*unstructured.UnstructuredList)
+	isUnstructured = isUnstructured || isUnstructuredList
+
+	switch {
+	case isUnstructured:
+		return m.unstructured.ModifyEventHandlerCount(gvk, delta)
+	default:
+		return m.structured.ModifyEventHandlerCount(gvk, delta)
 	}
 }
 

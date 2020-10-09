@@ -68,7 +68,7 @@ type SyncingSource interface {
 // and not overwritten. It can be used to watch objects in a different cluster by passing the cache
 // from that other cluster
 func NewKindWithCache(object runtime.Object, cache cache.Cache) SyncingSource {
-	return &kindWithCache{kind: Kind{Type: object, cache: cache}}
+	return &kindWithCache{kind: Kind{Type: object, Cache: cache}}
 }
 
 type kindWithCache struct {
@@ -89,8 +89,8 @@ type Kind struct {
 	// Type is the type of object to watch.  e.g. &v1.Pod{}
 	Type runtime.Object
 
-	// cache used to watch APIs
-	cache cache.Cache
+	// Cache used to watch APIs
+	Cache cache.Cache
 }
 
 var _ SyncingSource = &Kind{}
@@ -106,12 +106,12 @@ func (ks *Kind) Start(handler handler.EventHandler, queue workqueue.RateLimiting
 	}
 
 	// cache should have been injected before Start was called
-	if ks.cache == nil {
+	if ks.Cache == nil {
 		return fmt.Errorf("must call CacheInto on Kind before calling Start")
 	}
 
 	// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
-	i, err := ks.cache.GetInformer(context.TODO(), ks.Type)
+	i, err := ks.Cache.GetInformer(context.TODO(), ks.Type)
 	if err != nil {
 		if kindMatchErr, ok := err.(*meta.NoKindMatchError); ok {
 			log.Error(err, "if kind is a CRD, it should be installed before calling Start",
@@ -120,6 +120,8 @@ func (ks *Kind) Start(handler handler.EventHandler, queue workqueue.RateLimiting
 		return err
 	}
 	i.AddEventHandler(internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct})
+	fmt.Printf("bump refcount for ks.Type = %+v\n", ks.Type)
+	ks.Cache.ModifyEventHandlerCount(ks.Type, 1)
 	return nil
 }
 
@@ -133,7 +135,7 @@ func (ks *Kind) String() string {
 // WaitForSync implements SyncingSource to allow controllers to wait with starting
 // workers until the cache is synced.
 func (ks *Kind) WaitForSync(stop <-chan struct{}) error {
-	if !ks.cache.WaitForCacheSync(stop) {
+	if !ks.Cache.WaitForCacheSync(stop) {
 		// Would be great to return something more informative here
 		return errors.New("cache did not sync")
 	}
@@ -145,8 +147,8 @@ var _ inject.Cache = &Kind{}
 // InjectCache is internal should be called only by the Controller.  InjectCache is used to inject
 // the Cache dependency initialized by the ControllerManager.
 func (ks *Kind) InjectCache(c cache.Cache) error {
-	if ks.cache == nil {
-		ks.cache = c
+	if ks.Cache == nil {
+		ks.Cache = c
 	}
 	return nil
 }

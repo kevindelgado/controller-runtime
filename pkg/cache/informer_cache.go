@@ -243,6 +243,14 @@ func (ip *informerCache) Remove(obj runtime.Object) error {
 		return err
 	}
 
-	ip.InformersMap.Remove(gvk, obj)
-	return nil
+	return ip.InformersMap.Remove(gvk, obj)
+}
+
+func (ip *informerCache) ModifyEventHandlerCount(obj runtime.Object, delta int) int {
+	gvk, err := apiutil.GVKForObject(obj, ip.Scheme)
+	if err != nil {
+		return 0
+	}
+
+	return ip.InformersMap.ModifyEventHandlerCount(gvk, obj, delta)
 }
