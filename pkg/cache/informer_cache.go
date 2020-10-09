@@ -178,6 +178,15 @@ func (ip *informerCache) GetInformerNonBlocking(obj runtime.Object) (Informer, e
 	return i.Informer, nil
 }
 
+func (ip *informerCache) ModifyEventHandlerCount(obj runtime.Object, delta int) int {
+	gvk, err := apiutil.GVKForObject(obj, ip.Scheme)
+	if err != nil {
+		return 0
+	}
+
+	return ip.InformersMap.ModifyEventHandlerCount(gvk, obj, delta)
+}
+
 // NeedLeaderElection implements the LeaderElectionRunnable interface
 // to indicate that this can be started without requiring the leader lock
 func (ip *informerCache) NeedLeaderElection() bool {

@@ -103,6 +103,11 @@ func (c *multiNamespaceCache) Remove(obj runtime.Object) error {
 	return nil
 }
 
+// TODO: what do we need to do for multi-namspace cache wrt to MEHC()?
+func (c *multiNamespaceCache) ModifyEventHandlerCount(obj runtime.Object, delta int) int {
+	return 0
+}
+
 func (c *multiNamespaceCache) Start(stopCh <-chan struct{}) error {
 	for ns, cache := range c.namespaceToCache {
 		go func(ns string, cache Cache) {
