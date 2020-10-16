@@ -24,11 +24,9 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/internal/controller/metrics"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -147,9 +145,6 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.Queue = c.MakeQueue()
 	defer c.Queue.ShutDown() // needs to be outside the iife so that we shutdown after the stop channel is closed
 
-	refCounts := make(map[runtime.Object]int)
-	var cache cache.Cache
-
 	err := func() error {
 		defer c.mu.Unlock()
 
@@ -160,18 +155,28 @@ func (c *Controller) Start(ctx context.Context) error {
 		// caches to sync so that they have a chance to register their intendeded
 		// caches.
 		for _, watch := range c.startWatches {
-			kindSource, ok := watch.src.(*source.Kind)
-			if !ok {
-				fmt.Println("source NOT kind?")
+			//kindSource, ok := watch.src.(*source.Kind)
+			//if !ok {
+			//	fmt.Println("source NOT kind?")
+			//}
+			//// TODO: how to not duplicate this call?
+			//cache = kindSource.Cache
+
+			//if watch is stoppable {
+			//	run in goro with ctx
+			//}
+
+			stoppableSource, ok := watch.src.(source.StoppableSource)
+			if ok {
+				// TODO: apply daniel's suggested pattern
+				go stoppableSource.StartStoppable(ctx, watch.handler, c.Queue, watch.predicates...)
+				c.Log.Info("Starting STOPPABLE EventSource", "source", watch.src)
+			} else {
+				c.Log.Info("Starting EventSource", "source", watch.src)
+				if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
+					return err
+				}
 			}
-			// TODO: how to not duplicate this call?
-			cache = kindSource.Cache
-			c.Log.Info("Starting EventSource", "source", watch.src)
-			if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
-				return err
-			}
-			refCounts[kindSource.Type] = refCounts[kindSource.Type] + 1
-			fmt.Printf("bumping refcounts for kindSource.Type = %+v, to refCounts[kindSource.Type] = %+v\n", kindSource.Type, refCounts[kindSource.Type])
 		}
 
 		// Start the SharedIndexInformer factories to begin populating the SharedIndexInformer caches
@@ -222,10 +227,16 @@ func (c *Controller) Start(ctx context.Context) error {
 
 	<-ctx.Done()
 	// decrement counts
-	for obj, count := range refCounts {
-		fmt.Printf("Decrementing refcounts for obj = %+v, by count = %+v\n", obj, count)
-		cache.ModifyEventHandlerCount(obj, -count)
-	}
+	//c.Log.Info("decrementing")
+	//for _, watch := range c.startWatches {
+	//	stoppableSource, ok := watch.src.(source.StoppableSource)
+	//	//stoppableSource, ok := watch.src.(*source.Kind)
+	//	if ok {
+	//		continue
+	//		fmt.Println("stopping source")
+	//		stoppableSource.Stop(ctx)
+	//	}
+	//}
 	c.Log.Info("Stopping workers")
 	return nil
 }
