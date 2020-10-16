@@ -84,6 +84,16 @@ type Informer interface {
 	AddIndexers(indexers toolscache.Indexers) error
 	//HasSynced return true if the informers underlying store has synced
 	HasSynced() bool
+
+	// ModifyEventHandlerCount updates and retrieves the number of references for an informer.
+	// Passing a positive delta increments the EventHandler referece count a negative delta
+	// decrements it (by delta) and a delta of 0 is just a getter.
+
+	// This is just a hacky way to test out ref counting without having to pipe a bunch of
+	// ref counting functions down the stack.
+
+	// Alternatly, we could (and probably should) have separate inc, dec, and get functions
+	ModifyEventHandlerCount(delta int) int
 }
 
 // Options are the optional arguments for creating a new InformersMap object

@@ -64,6 +64,11 @@ type SyncingSource interface {
 	WaitForSync(ctx context.Context) error
 }
 
+type StoppableSource interface {
+	Source
+	StartStoppable(context.Context, handler.EventHandler, workqueue.RateLimitingInterface, ...predicate.Predicate) error
+}
+
 // NewKindWithCache creates a Source without InjectCache, so that it is assured that the given cache is used
 // and not overwritten. It can be used to watch objects in a different cluster by passing the cache
 // from that other cluster
@@ -120,6 +125,27 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 		return err
 	}
 	i.AddEventHandler(internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct})
+	//if handlerCountingInformer, ok := i.(*cache.HandlerCountingInformer); ok {
+	//handlerCountingInformer.Count += 1
+	newCount := i.ModifyEventHandlerCount(1)
+	fmt.Printf("increment, newCount is%+v\n", newCount)
+	//}
+	return nil
+}
+
+func (ks *Kind) StartStoppable(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface,
+	prct ...predicate.Predicate) error {
+	i, err := ks.cache.GetInformer(ctx, ks.Type)
+	if err != nil {
+		return err
+	}
+	if err := ks.Start(ctx, handler, queue, prct...); err != nil {
+		return err
+	}
+	<-ctx.Done()
+	newCount := i.ModifyEventHandlerCount(-1)
+	fmt.Printf("decrement, newCount is%+v\n", newCount)
+	// TODO: do we need to actually stop something with the context?
 	return nil
 }
 
@@ -143,7 +169,7 @@ func (ks *Kind) WaitForSync(ctx context.Context) error {
 var _ inject.Cache = &Kind{}
 
 // InjectCache is internal should be called only by the Controller.  InjectCache is used to inject
-// the Cache dependency initialized by the ControllerManager.
+// the cache dependency initialized by the ControllerManager.
 func (ks *Kind) InjectCache(c cache.Cache) error {
 	if ks.cache == nil {
 		ks.cache = c

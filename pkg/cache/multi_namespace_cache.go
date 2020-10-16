@@ -186,6 +186,15 @@ type multiNamespaceInformer struct {
 
 var _ Informer = &multiNamespaceInformer{}
 
+// ModifyEventHandlerCount TODO: comment
+func (i *multiNamespaceInformer) ModifyEventHandlerCount(delta int) int {
+	total := 0
+	for _, informer := range i.namespaceToInformer {
+		total += informer.ModifyEventHandlerCount(delta)
+	}
+	return total
+}
+
 // AddEventHandler adds the handler to each namespaced informer
 func (i *multiNamespaceInformer) AddEventHandler(handler toolscache.ResourceEventHandler) {
 	for _, informer := range i.namespaceToInformer {
