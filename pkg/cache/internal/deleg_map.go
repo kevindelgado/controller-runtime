@@ -92,19 +92,6 @@ func (m *InformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj
 	return m.structured.Get(ctx, gvk, obj)
 }
 
-//func (m *InformersMap) ModifyEventHandlerCount(gvk schema.GroupVersionKind, obj runtime.Object, delta int) int {
-//	_, isUnstructured := obj.(*unstructured.Unstructured)
-//	_, isUnstructuredList := obj.(*unstructured.UnstructuredList)
-//	isUnstructured = isUnstructured || isUnstructuredList
-//
-//	switch {
-//	case isUnstructured:
-//		return m.unstructured.ModifyEventHandlerCount(gvk, delta)
-//	default:
-//		return m.structured.ModifyEventHandlerCount(gvk, delta)
-//	}
-//}
-
 // newStructuredInformersMap creates a new InformersMap for structured objects.
 func newStructuredInformersMap(config *rest.Config, scheme *runtime.Scheme, mapper meta.RESTMapper, resync time.Duration, namespace string) *specificInformersMap {
 	return newSpecificInformersMap(config, scheme, mapper, resync, namespace, createStructuredListWatch)

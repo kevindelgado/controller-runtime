@@ -155,17 +155,6 @@ func (c *Controller) Start(ctx context.Context) error {
 		// caches to sync so that they have a chance to register their intendeded
 		// caches.
 		for _, watch := range c.startWatches {
-			//kindSource, ok := watch.src.(*source.Kind)
-			//if !ok {
-			//	fmt.Println("source NOT kind?")
-			//}
-			//// TODO: how to not duplicate this call?
-			//cache = kindSource.Cache
-
-			//if watch is stoppable {
-			//	run in goro with ctx
-			//}
-
 			stoppableSource, ok := watch.src.(source.StoppableSource)
 			if ok {
 				// TODO: apply daniel's suggested pattern
@@ -226,17 +215,6 @@ func (c *Controller) Start(ctx context.Context) error {
 	}
 
 	<-ctx.Done()
-	// decrement counts
-	//c.Log.Info("decrementing")
-	//for _, watch := range c.startWatches {
-	//	stoppableSource, ok := watch.src.(source.StoppableSource)
-	//	//stoppableSource, ok := watch.src.(*source.Kind)
-	//	if ok {
-	//		continue
-	//		fmt.Println("stopping source")
-	//		stoppableSource.Stop(ctx)
-	//	}
-	//}
 	c.Log.Info("Stopping workers")
 	return nil
 }

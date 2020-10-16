@@ -207,16 +207,6 @@ func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersion
 	return started, i, nil
 }
 
-//func (ip *specificInformersMap) ModifyEventHandlerCount(gvk schema.GroupVersionKind, delta int) int {
-//	entry, ok := ip.informersByGVK[gvk]
-//	if !ok {
-//		return 0
-//	}
-//
-//	return entry.ModifyEventHandlerCount(delta)
-//
-//}
-
 func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, obj runtime.Object) (*MapEntry, bool, error) {
 	ip.mu.Lock()
 	defer ip.mu.Unlock()

@@ -115,7 +115,7 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 		return fmt.Errorf("must call CacheInto on Kind before calling Start")
 	}
 
-	// Lookup the Informer from the cache and add an EventHandler which populates the Queue
+	// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
 	i, err := ks.cache.GetInformer(ctx, ks.Type)
 	if err != nil {
 		if kindMatchErr, ok := err.(*meta.NoKindMatchError); ok {
@@ -143,17 +143,6 @@ func (ks *Kind) StartStoppable(ctx context.Context, handler handler.EventHandler
 		return err
 	}
 	<-ctx.Done()
-	newCount := i.ModifyEventHandlerCount(-1)
-	fmt.Printf("decrement, newCount is%+v\n", newCount)
-	// TODO: do we need to actually stop something with the context?
-	return nil
-}
-
-func (ks *Kind) Stop(ctx context.Context) error {
-	i, err := ks.cache.GetInformer(ctx, ks.Type)
-	if err != nil {
-		return err
-	}
 	newCount := i.ModifyEventHandlerCount(-1)
 	fmt.Printf("decrement, newCount is%+v\n", newCount)
 	// TODO: do we need to actually stop something with the context?
