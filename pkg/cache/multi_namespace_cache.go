@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	toolscache "k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/cache/internal"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -194,6 +195,14 @@ type multiNamespaceInformer struct {
 }
 
 var _ Informer = &multiNamespaceInformer{}
+
+func (i *multiNamespaceInformer) RunWithStopOptions(stopOptions internal.StopOptions) internal.StopReason {
+	// TODO: don't leak goro - collect them with a errgroup or waitgroup
+	for _, informer := range i.namespaceToInformer {
+		go informer.RunWithStopOptions(stopOptions)
+	}
+	return nil
+}
 
 func (i *multiNamespaceInformer) CountEventHandlers() int {
 	total := 0

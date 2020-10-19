@@ -135,8 +135,17 @@ func (e *MapEntry) Start(stop <-chan struct{}) {
 	e.Informer.Run(internalStop)
 }
 
+func (e *MapEntry) StartWithStopOptions(stopOptions StopOptions) {
+	// Stop on either the whole map stopping or just this informer being removed.
+	internalStop, cancel := anyOf(stopOptions.StopChannel, e.stop)
+	stopOptions.StopChannel = internalStop
+	defer cancel()
+	e.Informer.RunWithStopOptions(stopOptions)
+}
+
 // Start calls Run on each of the informers and sets started to true.  Blocks on the context.
 // It doesn't return start because it can't return an error, and it's not a runnable directly.
+// TODO: take in start options, bubble up to builder
 func (ip *specificInformersMap) Start(ctx context.Context) {
 	func() {
 		ip.mu.Lock()
@@ -147,7 +156,10 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 
 		// Start each informer
 		for _, entry := range ip.informersByGVK {
-			go entry.Start(ctx.Done())
+			//go entry.Start(ctx.Done())
+			go entry.StartWithStopOptions(StopOptions{
+				StopChannel: ctx.Done(),
+			})
 		}
 
 		// Set started to true so we immediately start any informers added later.
@@ -155,6 +167,13 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 		close(ip.startWait)
 	}()
 	<-ctx.Done()
+}
+
+// StartWithStopOptions exposes a way to start an informer with user defined stopOptions
+// We would plumb stopOptions from the builder (where the user would define them), down here through to the
+// informer.
+func (ip *specificInformersMap) StartWithStopOptions(ctx context.Context, stopOptions StopOptions) {
+	// TODO: implement once SharedIndexInformer in client-go supports RunWithStopOptions
 }
 
 func (ip *specificInformersMap) waitForStarted(ctx context.Context) bool {

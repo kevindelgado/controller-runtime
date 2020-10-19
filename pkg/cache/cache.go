@@ -95,7 +95,24 @@ type Informer interface {
 
 	// CountEventHandlers returns the number of event handlers added to an informer.
 	CountEventHandlers() int
+
+	// RunWithStopOptions runs the informer and provides options to be checked that
+	// would indicate under what conditions the informer should stop.
+	RunWithStopOptions(stopOptions internal.StopOptions) internal.StopReason
 }
+
+// StopOptions let the caller specify which conditions to stop the informer.
+type StopOptions struct {
+	// StopChannel stops the Informer when it receives a close signal.
+	StopChannel <-chan struct{}
+
+	// OnListError inspects errors returned from the infromer's underlying refloector,
+	// and based on the error determines whether or not to stop the informer.
+	OnListError func(error) bool
+}
+
+// StopReason is a custom typed error that indicates how the informer was stopped.
+type StopReason error
 
 // Options are the optional arguments for creating a new InformersMap object
 type Options struct {
