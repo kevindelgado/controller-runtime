@@ -128,18 +128,23 @@ type specificInformersMap struct {
 // Blocks until the informer stops. The informer can be stopped
 // either individually (via the entry's stop channel) or globally
 // via the provided stop argument.
-func (e *MapEntry) Start(stop <-chan struct{}) {
-	// Stop on either the whole map stopping or just this informer being removed.
-	internalStop, cancel := anyOf(stop, e.stop)
-	defer cancel()
-	e.Informer.Run(internalStop)
-}
+//func (e *MapEntry) Start(stop <-chan struct{}) {
+//	// Stop on either the whole map stopping or just this informer being removed.
+//	internalStop, cancel := anyOf(stop, e.stop)
+//	defer cancel()
+//	e.Informer.Run(internalStop)
+//}
 
-func (e *MapEntry) StartWithStopOptions(stopOptions StopOptions) {
+func (e *MapEntry) StartWithStopOptions(stopOptions cache.StopOptions) {
 	// Stop on either the whole map stopping or just this informer being removed.
 	internalStop, cancel := anyOf(stopOptions.StopChannel, e.stop)
 	stopOptions.StopChannel = internalStop
-	defer cancel()
+	stopOptions.Cancel = cancel
+	stopOptions.OnListError = func(err error) bool {
+		fmt.Println("OnListError")
+		return true
+	}
+	//defer cancel()
 	e.Informer.RunWithStopOptions(stopOptions)
 }
 
@@ -157,7 +162,7 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 		// Start each informer
 		for _, entry := range ip.informersByGVK {
 			//go entry.Start(ctx.Done())
-			go entry.StartWithStopOptions(StopOptions{
+			go entry.StartWithStopOptions(cache.StopOptions{
 				StopChannel: ctx.Done(),
 			})
 		}
@@ -172,7 +177,7 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 // StartWithStopOptions exposes a way to start an informer with user defined stopOptions
 // We would plumb stopOptions from the builder (where the user would define them), down here through to the
 // informer.
-func (ip *specificInformersMap) StartWithStopOptions(ctx context.Context, stopOptions StopOptions) {
+func (ip *specificInformersMap) StartWithStopOptions(ctx context.Context, stopOptions cache.StopOptions) {
 	// TODO: implement once SharedIndexInformer in client-go supports RunWithStopOptions
 }
 
@@ -259,10 +264,11 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	// TODO(seans): write thorough tests and document what happens here - can you add indexers?
 	// can you add eventhandlers?
 	if ip.started {
-		go i.Start(ip.stop)
-		//go i.Start(StopOptions{
-		//	StopChannel: ip.stop,
-		//})
+		fmt.Println("HUH ALREADY STARTED??")
+		//go i.Start(ip.stop)
+		go i.StartWithStopOptions(cache.StopOptions{
+			StopChannel: ip.stop,
+		})
 	}
 	return i, ip.started, nil
 }

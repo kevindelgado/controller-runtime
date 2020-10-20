@@ -13,7 +13,7 @@ type CountingInformer interface {
 	cache.SharedIndexInformer
 	CountEventHandlers() int
 	RemoveEventHandler(id int) error
-	RunWithStopOptions(stopOptions StopOptions) StopReason
+	RunWithStopOptions(stopOptions cache.StopOptions) cache.StopReason
 }
 
 // HandlerCountingInformer implements the CountingInformer.
@@ -86,20 +86,21 @@ func (i *HandlerCountingInformer) Run(stopCh <-chan struct{}) {
 	i.informer.Run(stopCh)
 }
 
-func (i *HandlerCountingInformer) RunWithStopOptions(stopOptions StopOptions) StopReason {
-	i.Run(stopOptions.StopChannel)
-	return nil
+func (i *HandlerCountingInformer) RunWithStopOptions(stopOptions cache.StopOptions) cache.StopReason {
+	return i.informer.RunWithStopOptions(stopOptions)
 }
 
-// StopOptions let the caller specify which conditions to stop the informer.
-type StopOptions struct {
-	// StopChannel stops the Informer when it receives a close signal.
-	StopChannel <-chan struct{}
-
-	// OnListError inspects errors returned from the infromer's underlying refloector,
-	// and based on the error determines whether or not to stop the informer.
-	OnListError func(error) bool
-}
-
-// StopReason is a custom typed error that indicates how the informer was stopped.
-type StopReason error
+//// StopOptions let the caller specify which conditions to stop the informer.
+//type StopOptions struct {
+//	// StopChannel stops the Informer when it receives a close signal.
+//	StopChannel <-chan struct{}
+//
+//	Cancel context.CancelFunc
+//
+//	// OnListError inspects errors returned from the infromer's underlying refloector,
+//	// and based on the error determines whether or not to stop the informer.
+//	OnListError func(error) bool
+//}
+//
+//// StopReason is a custom typed error that indicates how the informer was stopped.
+//type StopReason error
