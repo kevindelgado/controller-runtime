@@ -13,7 +13,7 @@ type CountingInformer interface {
 	cache.SharedIndexInformer
 	CountEventHandlers() int
 	RemoveEventHandler(id int) error
-	RunWithStopOptions(stopOptions cache.StopOptions) cache.StopReason
+	RunWithStopOptions(stopOptions cache.StopOptions)
 }
 
 // HandlerCountingInformer implements the CountingInformer.
@@ -86,8 +86,8 @@ func (i *HandlerCountingInformer) Run(stopCh <-chan struct{}) {
 	i.informer.Run(stopCh)
 }
 
-func (i *HandlerCountingInformer) RunWithStopOptions(stopOptions cache.StopOptions) cache.StopReason {
-	return i.informer.RunWithStopOptions(stopOptions)
+func (i *HandlerCountingInformer) RunWithStopOptions(stopOptions cache.StopOptions) {
+	i.informer.RunWithStopOptions(stopOptions)
 }
 
 //// StopOptions let the caller specify which conditions to stop the informer.

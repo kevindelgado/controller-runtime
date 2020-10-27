@@ -2,6 +2,8 @@ module sigs.k8s.io/controller-runtime
 
 go 1.15
 
+replace k8s.io/client-go => /usr/local/google/home/kevindelgado/code/client-go
+
 require (
 	github.com/coreos/go-etcd v2.0.0+incompatible // indirect
 	github.com/cpuguy83/go-md2man v1.0.10 // indirect

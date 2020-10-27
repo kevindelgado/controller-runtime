@@ -98,7 +98,7 @@ type Informer interface {
 
 	// RunWithStopOptions runs the informer and provides options to be checked that
 	// would indicate under what conditions the informer should stop.
-	RunWithStopOptions(stopOptions toolscache.StopOptions) toolscache.StopReason
+	RunWithStopOptions(stopOptions toolscache.StopOptions)
 }
 
 // Options are the optional arguments for creating a new InformersMap object

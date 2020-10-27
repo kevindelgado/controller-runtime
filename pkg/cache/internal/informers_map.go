@@ -137,13 +137,13 @@ type specificInformersMap struct {
 
 func (e *MapEntry) StartWithStopOptions(stopOptions cache.StopOptions) {
 	// Stop on either the whole map stopping or just this informer being removed.
-	internalStop, cancel := anyOf(stopOptions.StopChannel, e.stop)
-	stopOptions.StopChannel = internalStop
-	stopOptions.Cancel = cancel
-	stopOptions.OnListError = func(err error) bool {
-		fmt.Println("OnListError")
-		return true
-	}
+	//internalStop, cancel := anyOf(stopOptions.StopChannel, e.stop)
+	//stopOptions.StopChannel = internalStop
+	//stopOptions.Cancel = cancel
+	//stopOptions.OnListError = func(err error) bool {
+	//	fmt.Println("OnListError")
+	//	return true
+	//}
 	//defer cancel()
 	e.Informer.RunWithStopOptions(stopOptions)
 }
@@ -163,7 +163,11 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 		for _, entry := range ip.informersByGVK {
 			//go entry.Start(ctx.Done())
 			go entry.StartWithStopOptions(cache.StopOptions{
-				StopChannel: ctx.Done(),
+				//StopChannel: ctx.Done(),
+				OnListError: func(err error) bool {
+					fmt.Println("OnListError")
+					return true
+				},
 			})
 		}
 
@@ -267,7 +271,7 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 		fmt.Println("HUH ALREADY STARTED??")
 		//go i.Start(ip.stop)
 		go i.StartWithStopOptions(cache.StopOptions{
-			StopChannel: ip.stop,
+			//StopChannel: ip.stop,
 		})
 	}
 	return i, ip.started, nil

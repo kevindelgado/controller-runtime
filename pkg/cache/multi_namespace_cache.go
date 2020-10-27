@@ -195,12 +195,11 @@ type multiNamespaceInformer struct {
 
 var _ Informer = &multiNamespaceInformer{}
 
-func (i *multiNamespaceInformer) RunWithStopOptions(stopOptions toolscache.StopOptions) toolscache.StopReason {
+func (i *multiNamespaceInformer) RunWithStopOptions(stopOptions toolscache.StopOptions) {
 	// TODO: don't leak goro - collect them with a errgroup or waitgroup
 	for _, informer := range i.namespaceToInformer {
 		go informer.RunWithStopOptions(stopOptions)
 	}
-	return nil
 }
 
 func (i *multiNamespaceInformer) CountEventHandlers() int {
