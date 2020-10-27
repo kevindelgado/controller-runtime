@@ -202,6 +202,14 @@ func (i *multiNamespaceInformer) RunWithStopOptions(stopOptions toolscache.StopO
 	}
 }
 
+func (i *multiNamespaceInformer) Done() *toolscache.StopHandle {
+	// TOOD: meger together?
+	for _, informer := range i.namespaceToInformer {
+		return informer.Done()
+	}
+	return nil
+}
+
 func (i *multiNamespaceInformer) CountEventHandlers() int {
 	total := 0
 	for _, informer := range i.namespaceToInformer {

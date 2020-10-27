@@ -90,6 +90,10 @@ func (i *HandlerCountingInformer) RunWithStopOptions(stopOptions cache.StopOptio
 	i.informer.RunWithStopOptions(stopOptions)
 }
 
+func (i *HandlerCountingInformer) Done() *cache.StopHandle {
+	return i.informer.Done()
+}
+
 //// StopOptions let the caller specify which conditions to stop the informer.
 //type StopOptions struct {
 //	// StopChannel stops the Informer when it receives a close signal.

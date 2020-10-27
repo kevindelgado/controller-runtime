@@ -141,7 +141,7 @@ func (e *MapEntry) StartWithStopOptions(stopOptions cache.StopOptions) {
 	//stopOptions.StopChannel = internalStop
 	//stopOptions.Cancel = cancel
 	//stopOptions.OnListError = func(err error) bool {
-	//	fmt.Println("OnListError")
+	//	fmt.Println("OnListError, map entry")
 	//	return true
 	//}
 	//defer cancel()
@@ -162,10 +162,11 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 		// Start each informer
 		for _, entry := range ip.informersByGVK {
 			//go entry.Start(ctx.Done())
+			fmt.Println("Starting as expected in SIM")
 			go entry.StartWithStopOptions(cache.StopOptions{
-				//StopChannel: ctx.Done(),
+				ExternalStop: ctx.Done(),
 				OnListError: func(err error) bool {
-					fmt.Println("OnListError")
+					fmt.Println("OnListError SIM options")
 					return true
 				},
 			})
@@ -271,7 +272,11 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 		fmt.Println("HUH ALREADY STARTED??")
 		//go i.Start(ip.stop)
 		go i.StartWithStopOptions(cache.StopOptions{
-			//StopChannel: ip.stop,
+			ExternalStop: ip.stop,
+			OnListError: func(err error) bool {
+				fmt.Println("OnListError ip started")
+				return true
+			},
 		})
 	}
 	return i, ip.started, nil
