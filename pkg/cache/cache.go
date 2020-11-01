@@ -91,16 +91,16 @@ type Informer interface {
 	// RemoveEventHandler currently just decrements a the count of event handlers
 	// The goals it to have SharedInformer support RemoveEventHandler (and actually remove
 	// the handler instead of just decrementing a count).
-	RemoveEventHandler(id int) error
+	RemoveEventHandler(handler toolscache.ResourceEventHandler) bool
 
-	// CountEventHandlers returns the number of event handlers added to an informer.
-	CountEventHandlers() int
+	// EventHandlerCount returns the number of event handlers added to an informer.
+	EventHandlerCount() int
 
 	// RunWithStopOptions runs the informer and provides options to be checked that
 	// would indicate under what conditions the informer should stop.
 	RunWithStopOptions(stopOptions toolscache.StopOptions)
 
-	Done() *toolscache.StopHandle
+	Done() toolscache.StopHandle
 }
 
 // Options are the optional arguments for creating a new InformersMap object

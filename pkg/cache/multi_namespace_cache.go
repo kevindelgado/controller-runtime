@@ -202,7 +202,7 @@ func (i *multiNamespaceInformer) RunWithStopOptions(stopOptions toolscache.StopO
 	}
 }
 
-func (i *multiNamespaceInformer) Done() *toolscache.StopHandle {
+func (i *multiNamespaceInformer) Done() toolscache.StopHandle {
 	// TOOD: meger together?
 	for _, informer := range i.namespaceToInformer {
 		return informer.Done()
@@ -210,21 +210,21 @@ func (i *multiNamespaceInformer) Done() *toolscache.StopHandle {
 	return nil
 }
 
-func (i *multiNamespaceInformer) CountEventHandlers() int {
+func (i *multiNamespaceInformer) EventHandlerCount() int {
 	total := 0
 	for _, informer := range i.namespaceToInformer {
-		total += informer.CountEventHandlers()
+		total += informer.EventHandlerCount()
 	}
 	return total
 }
 
-func (i *multiNamespaceInformer) RemoveEventHandler(id int) error {
+func (i *multiNamespaceInformer) RemoveEventHandler(handler toolscache.ResourceEventHandler) bool {
 	for _, informer := range i.namespaceToInformer {
-		if err := informer.RemoveEventHandler(id); err != nil {
-			return err
+		if ok := informer.RemoveEventHandler(handler); !ok {
+			return false
 		}
 	}
-	return nil
+	return true
 }
 
 // AddEventHandler adds the handler to each namespaced informer

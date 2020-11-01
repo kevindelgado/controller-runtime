@@ -127,7 +127,7 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 		}
 		return err
 	}
-	i.AddEventHandler(internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct})
+	i.AddEventHandler(&internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct})
 	return nil
 }
 
@@ -142,7 +142,9 @@ func (ks *Kind) StartStoppable(ctx context.Context, handler handler.EventHandler
 		return err
 	}
 	<-ctx.Done()
-	i.RemoveEventHandler(-1)
+	if ok := i.RemoveEventHandler(&internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct}); !ok {
+		return fmt.Errorf("unable to remove event handler %+v", handler)
+	}
 	return nil
 }
 
