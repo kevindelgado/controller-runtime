@@ -31,6 +31,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/inject"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/internal/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/internal/metrics"
@@ -81,6 +82,33 @@ type Server struct {
 	mu sync.Mutex
 }
 
+type Options struct {
+	// Host is the address that the server will listen on.
+	// Defaults to "" - all addresses.
+	Host string
+
+	// Port is the port number that the server will serve.
+	// It will be defaulted to 9443 if unspecified.
+	Port int
+
+	// CertDir is the directory that contains the server key and certificate. The
+	// server key and certificate.
+	CertDir string
+
+	// CertName is the server certificate name. Defaults to tls.crt.
+	CertName string
+
+	// KeyName is the server key name. Defaults to tls.key.
+	KeyName string
+
+	// ClientCAName is the CA certificate name which server used to verify remote(client)'s certificate.
+	// Defaults to "", which means server does not verify client's certificate.
+	ClientCAName string
+
+	// WebhookMux is the multiplexer that handles different webhooks.
+	WebhookMux *http.ServeMux
+}
+
 // setDefaults does defaulting for the Server.
 func (s *Server) setDefaults() {
 	s.webhooks = map[string]http.Handler{}
@@ -103,6 +131,42 @@ func (s *Server) setDefaults() {
 	if len(s.KeyName) == 0 {
 		s.KeyName = "tls.key"
 	}
+}
+
+func NewStandaloneServer(cluster cluster.Cluster, options Options) (*Server, error) {
+	server := &Server{
+		Host:       options.Host,
+		WebhookMux: options.WebhookMux,
+		Port:       options.Port,
+		CertDir:    options.CertDir,
+		CertName:   options.CertName,
+		KeyName:    options.KeyName,
+	}
+	server.setDefaults()
+
+	server.InjectFunc(func(i interface{}) error {
+		if _, err := inject.ConfigInto(cluster.GetConfig(), i); err != nil {
+			return err
+		}
+		if _, err := inject.SchemeInto(cluster.GetScheme(), i); err != nil {
+			return err
+		}
+
+		if _, err := inject.ClientInto(cluster.GetClient(), i); err != nil {
+			return err
+		}
+		if _, err := inject.APIReaderInto(cluster.GetAPIReader(), i); err != nil {
+			return err
+		}
+		if _, err := inject.CacheInto(cluster.GetCache(), i); err != nil {
+			return err
+		}
+		if _, err := inject.MapperInto(cluster.GetRESTMapper(), i); err != nil {
+			return err
+		}
+		return nil
+	})
+	return server, nil
 }
 
 // NeedLeaderElection implements the LeaderElectionRunnable interface, which indicates
