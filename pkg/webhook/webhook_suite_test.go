@@ -23,8 +23,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 func TestSource(t *testing.T) {
@@ -33,8 +31,54 @@ func TestSource(t *testing.T) {
 	RunSpecsWithDefaultAndCustomReporters(t, suiteName, []Reporter{printer.NewlineReporter{}, printer.NewProwReporter(suiteName)})
 }
 
-var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
-
-	close(done)
-}, 60)
+//var testenv *envtest.Environment
+//var cfg *rest.Config
+//var clientset *kubernetes.Clientset
+//
+//// clientTransport is used to force-close keep-alives in tests that check for leaks
+//var clientTransport *http.Transport
+//
+//var _ = BeforeSuite(func(done Done) {
+//	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+//
+//	err := (&crscheme.Builder{
+//		GroupVersion: schema.GroupVersion{Group: "chaosapps.metamagical.io", Version: "v1"},
+//	}).
+//		Register(
+//			// TODO: dont use controllertest types
+//			&controllertest.UnconventionalListType{},
+//			&controllertest.UnconventionalListTypeList{},
+//		).AddToScheme(scheme.Scheme)
+//	Expect(err).To(BeNil())
+//
+//	testenv = &envtest.Environment{
+//		CRDDirectoryPaths: []string{"testdata/crds"},
+//	}
+//
+//	cfg, err = testenv.Start()
+//	Expect(err).NotTo(HaveOccurred())
+//
+//	clientTransport = &http.Transport{}
+//	cfg.Transport = clientTransport
+//
+//	clientset, err = kubernetes.NewForConfig(cfg)
+//	Expect(err).NotTo(HaveOccurred())
+//
+//	// Prevent the metrics listener being created
+//	metrics.DefaultBindAddress = "0"
+//
+//	close(done)
+//}, 60)
+//
+//var _ = AfterSuite(func() {
+//	Expect(testenv.Stop()).To(Succeed())
+//
+//	// Put the DefaultBindAddress back
+//	metrics.DefaultBindAddress = ":8080"
+//})
+//
+//var _ = BeforeSuite(func(done Done) {
+//	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+//
+//	close(done)
+//}, 60)

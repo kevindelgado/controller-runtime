@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
@@ -173,6 +174,34 @@ var _ = Describe("Webhook Server", func() {
 			server.Register("/somepath", handler)
 			Expect(handler.injectedField).To(BeTrue())
 		})
+	})
+
+	Context("when using an unmanaged webhook server", func() {
+		It("should serve a webhook on the requested path", func() {
+			opts := webhook.Options{
+				Host:    servingOpts.LocalServingHost,
+				Port:    servingOpts.LocalServingPort,
+				CertDir: servingOpts.LocalServingCertDir,
+			}
+			var err error
+			// overwrite the server so that startServer knows to start it
+			server, err = webhook.NewUnmanaged(cluster.NewFakeCluster(), opts)
+
+			Expect(err).NotTo(HaveOccurred())
+			server.Register("/somepath", &testHandler{})
+			doneCh := startServer()
+
+			Eventually(func() ([]byte, error) {
+				resp, err := client.Get(fmt.Sprintf("https://%s/somepath", testHostPort))
+				Expect(err).NotTo(HaveOccurred())
+				defer resp.Body.Close()
+				return ioutil.ReadAll(resp.Body)
+			}).Should(Equal([]byte("gadzooks!")))
+
+			ctxCancel()
+			Eventually(doneCh, "4s").Should(BeClosed())
+		})
+
 	})
 })
 

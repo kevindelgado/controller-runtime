@@ -204,6 +204,11 @@ func New(config *rest.Config, opts ...Option) (Cluster, error) {
 	}, nil
 }
 
+// NewFakeCluster contrcuts an empty cluster for testing
+func NewFakeCluster() Cluster {
+	return &cluster{}
+}
+
 // setOptionsDefaults set default values for Options fields
 func setOptionsDefaults(options Options) Options {
 	// Use the Kubernetes client-go scheme if none is specified
