@@ -184,7 +184,7 @@ var _ = Describe("Webhook Server", func() {
 				CertDir: servingOpts.LocalServingCertDir,
 			}
 			var err error
-			// overwrite the server so that startServer knows to start it
+			// overwrite the server so that startServer() starts it
 			server, err = webhook.NewUnmanaged(cluster.NewFakeCluster(), opts)
 
 			Expect(err).NotTo(HaveOccurred())
