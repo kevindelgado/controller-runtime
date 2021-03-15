@@ -20,6 +20,7 @@ import (
 	"context"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	. "sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -65,6 +66,63 @@ func Example() {
 
 	// Start the server by starting a previously-set-up manager
 	err = mgr.Start(ctrl.SetupSignalHandler())
+	if err != nil {
+		// handle error
+		panic(err)
+	}
+}
+
+func UnmanagedExample() {
+	// Build webhooks
+	// These handlers could be also be implementations
+	// of the AdmissionHandler interface for more complex
+	// implementations.
+	mutatingHook := &Admission{
+		Handler: admission.HandlerFunc(func(ctx context.Context, req AdmissionRequest) AdmissionResponse {
+			return Patched("some changes",
+				JSONPatchOp{Operation: "add", Path: "/metadata/annotations/access", Value: "granted"},
+				JSONPatchOp{Operation: "add", Path: "/metadata/annotations/reason", Value: "not so secret"},
+			)
+		}),
+	}
+
+	validatingHook := &Admission{
+		Handler: admission.HandlerFunc(func(ctx context.Context, req AdmissionRequest) AdmissionResponse {
+			return Denied("none shall pass!")
+		}),
+	}
+
+	//// Create a manager
+	//// Note: GetConfigOrDie will os.Exit(1) w/o any message if no kube-config can be found
+	//mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{})
+	//if err != nil {
+	//	panic(err)
+	//}
+
+	//// Create a webhook server.
+	//hookServer := &Server{
+	//	Port: 8443,
+	//}
+	//if err := mgr.Add(hookServer); err != nil {
+	//	panic(err)
+	//}
+
+	cluster, err := cluster.New(ctrl.GetConfigOrDie(), func(clusterOptions *cluster.Options) {})
+	if err != nil {
+		panic(err)
+	}
+	hookServer, err := NewUnmanaged(cluster, Options{Port: 8443})
+	if err != nil {
+		panic(err)
+	}
+
+	// Register the webhooks in the server.
+	hookServer.Register("/mutating", mutatingHook)
+	hookServer.Register("/validating", validatingHook)
+
+	// Start the server by starting a previously-set-up manager
+	//err = mgr.Start(ctrl.SetupSignalHandler())
+	err = hookServer.Start(ctrl.SetupSignalHandler())
 	if err != nil {
 		// handle error
 		panic(err)

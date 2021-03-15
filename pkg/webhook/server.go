@@ -133,7 +133,7 @@ func (s *Server) setDefaults() {
 	}
 }
 
-func NewStandaloneServer(cluster cluster.Cluster, options Options) (*Server, error) {
+func NewUnmanaged(cluster cluster.Cluster, options Options) (*Server, error) {
 	server := &Server{
 		Host:       options.Host,
 		WebhookMux: options.WebhookMux,
