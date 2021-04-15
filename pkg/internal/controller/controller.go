@@ -79,6 +79,9 @@ type Controller struct {
 	// undergo a major refactoring and redesign to allow for context to not be stored in a struct.
 	ctx context.Context
 
+	// saveWatches indicates not to clear startWatches when the controller is stopped.
+	saveWatches bool
+
 	// startWatches maintains a list of sources, handlers, and predicates to start when the controller is started.
 	startWatches []watchDescription
 
@@ -155,9 +158,17 @@ func (c *Controller) Start(ctx context.Context) error {
 		// caches to sync so that they have a chance to register their intendeded
 		// caches.
 		for _, watch := range c.startWatches {
-			c.Log.Info("Starting EventSource", "source", watch.src)
-			if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
-				return err
+			stoppableSource, ok := watch.src.(source.StoppableSource)
+			if ok {
+				// TODO: use errgroup or waitgroup to not return until all goros have exited
+				// (or something else to prevent leaks)
+				go stoppableSource.StartStoppable(ctx, watch.handler, c.Queue, watch.predicates...)
+				c.Log.Info("Starting STOPPABLE EventSource", "source", watch.src)
+			} else {
+				c.Log.Info("Starting EventSource", "source", watch.src)
+				if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -180,9 +191,15 @@ func (c *Controller) Start(ctx context.Context) error {
 
 		// All the watches have been started, we can reset the local slice.
 		//
-		// We should never hold watches more than necessary, each watch source can hold a backing cache,
+		// We should not usually hold watches more than necessary, each watch source can hold a backing cache,
 		// which won't be garbage collected if we hold a reference to it.
-		c.startWatches = nil
+
+		// The exception to this is when the saveWatches is set to true,
+		// meaning the controller is intending to run Start() again.
+		// In this case it needs knowledge of the watches for when the controller is restarted.
+		if !c.saveWatches {
+			c.startWatches = nil
+		}
 
 		if c.JitterPeriod == 0 {
 			c.JitterPeriod = 1 * time.Second
@@ -301,4 +318,14 @@ func (c *Controller) InjectFunc(f inject.Func) error {
 // updateMetrics updates prometheus metrics within the controller
 func (c *Controller) updateMetrics(reconcileTime time.Duration) {
 	ctrlmetrics.ReconcileTime.WithLabelValues(c.Name).Observe(reconcileTime.Seconds())
+}
+
+// ResetStart sets Started to false to enable running Start on the controller again.
+func (c *Controller) ResetStart() {
+	c.Started = false
+}
+
+// SaveWatches indicates that watches should not be cleared when the controller is stopped.
+func (c *Controller) SaveWatches() {
+	c.saveWatches = true
 }

@@ -58,6 +58,9 @@ type Informers interface {
 	// of the underlying object.
 	GetInformerForKind(ctx context.Context, gvk schema.GroupVersionKind) (Informer, error)
 
+	// Remove the informer for the given object.
+	Remove(ctx context.Context, obj runtime.Object) error
+
 	// Start runs all the informers known to this cache until the context is closed.
 	// It blocks.
 	Start(ctx context.Context) error
@@ -84,6 +87,18 @@ type Informer interface {
 	AddIndexers(indexers toolscache.Indexers) error
 	//HasSynced return true if the informers underlying store has synced
 	HasSynced() bool
+
+	// RemoveEventHandler currently just decrements a the count of event handlers
+	// The goals it to have SharedInformer support RemoveEventHandler (and actually remove
+	// the handler instead of just decrementing a count).
+	RemoveEventHandler(id int) error
+
+	// CountEventHandlers returns the number of event handlers added to an informer.
+	CountEventHandlers() int
+
+	// RunWithStopOptions runs the informer and provides options to be checked that
+	// would indicate under what conditions the informer should stop.
+	RunWithStopOptions(stopOptions toolscache.StopOptions) toolscache.StopReason
 }
 
 // Options are the optional arguments for creating a new InformersMap object
@@ -126,7 +141,7 @@ func defaultOpts(config *rest.Config, opts Options) (Options, error) {
 	// Construct a new Mapper if unset
 	if opts.Mapper == nil {
 		var err error
-		opts.Mapper, err = apiutil.NewDiscoveryRESTMapper(config)
+		opts.Mapper, err = apiutil.NewDynamicRESTMapper(config)
 		if err != nil {
 			log.WithName("setup").Error(err, "Failed to get API Group-Resources")
 			return opts, fmt.Errorf("could not create RESTMapper from config")

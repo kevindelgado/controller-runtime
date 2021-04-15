@@ -65,11 +65,14 @@ func newSpecificInformersMap(config *rest.Config,
 
 // MapEntry contains the cached data for an Informer
 type MapEntry struct {
-	// Informer is the cached informer
-	Informer cache.SharedIndexInformer
+	// Informer is a SharedIndexInformer with addition count and remove event handler functionality.
+	Informer CountingInformer
 
 	// CacheReader wraps Informer and implements the CacheReader interface for a single type
 	Reader CacheReader
+
+	// Stop can be used to stop this individual informer without stopping the entire specificInformersMap.
+	stop chan struct{}
 }
 
 // specificInformersMap create and caches Informers for (runtime.Object, schema.GroupVersionKind) pairs.
@@ -121,8 +124,33 @@ type specificInformersMap struct {
 	namespace string
 }
 
+// Start starts the informer managed by a MapEntry.
+// Blocks until the informer stops. The informer can be stopped
+// either individually (via the entry's stop channel) or globally
+// via the provided stop argument.
+//func (e *MapEntry) Start(stop <-chan struct{}) {
+//	// Stop on either the whole map stopping or just this informer being removed.
+//	internalStop, cancel := anyOf(stop, e.stop)
+//	defer cancel()
+//	e.Informer.Run(internalStop)
+//}
+
+func (e *MapEntry) StartWithStopOptions(stopOptions cache.StopOptions) {
+	// Stop on either the whole map stopping or just this informer being removed.
+	internalStop, cancel := anyOf(stopOptions.StopChannel, e.stop)
+	stopOptions.StopChannel = internalStop
+	stopOptions.Cancel = cancel
+	stopOptions.OnListError = func(err error) bool {
+		fmt.Println("OnListError")
+		return true
+	}
+	//defer cancel()
+	e.Informer.RunWithStopOptions(stopOptions)
+}
+
 // Start calls Run on each of the informers and sets started to true.  Blocks on the context.
 // It doesn't return start because it can't return an error, and it's not a runnable directly.
+// TODO: take in start options, bubble up to builder
 func (ip *specificInformersMap) Start(ctx context.Context) {
 	func() {
 		ip.mu.Lock()
@@ -132,8 +160,11 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 		ip.stop = ctx.Done()
 
 		// Start each informer
-		for _, informer := range ip.informersByGVK {
-			go informer.Informer.Run(ctx.Done())
+		for _, entry := range ip.informersByGVK {
+			//go entry.Start(ctx.Done())
+			go entry.StartWithStopOptions(cache.StopOptions{
+				StopChannel: ctx.Done(),
+			})
 		}
 
 		// Set started to true so we immediately start any informers added later.
@@ -141,6 +172,13 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 		close(ip.startWait)
 	}()
 	<-ctx.Done()
+}
+
+// StartWithStopOptions exposes a way to start an informer with user defined stopOptions
+// We would plumb stopOptions from the builder (where the user would define them), down here through to the
+// informer.
+func (ip *specificInformersMap) StartWithStopOptions(ctx context.Context, stopOptions cache.StopOptions) {
+	// TODO: implement once SharedIndexInformer in client-go supports RunWithStopOptions
 }
 
 func (ip *specificInformersMap) waitForStarted(ctx context.Context) bool {
@@ -183,8 +221,12 @@ func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersion
 
 	if started && !i.Informer.HasSynced() {
 		// Wait for it to sync before returning the Informer so that folks don't read from a stale cache.
-		if !cache.WaitForCacheSync(ctx.Done(), i.Informer.HasSynced) {
-			return started, nil, apierrors.NewTimeoutError(fmt.Sprintf("failed waiting for %T Informer to sync", obj), 0)
+		// Cancel for context, informer stopping, or entire map stopping.
+		syncStop, cancel := mergeChan(ctx.Done(), i.stop, ip.stop)
+		defer cancel()
+		if !cache.WaitForCacheSync(syncStop, i.Informer.HasSynced) {
+			// Return entry even on timeout - caller may have intended a non-blocking fetch.
+			return started, i, apierrors.NewTimeoutError(fmt.Sprintf("failed waiting for %T Informer to sync", obj), 0)
 		}
 	}
 
@@ -212,8 +254,9 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 		cache.NamespaceIndex: cache.MetaNamespaceIndexFunc,
 	})
 	i := &MapEntry{
-		Informer: ni,
+		Informer: &HandlerCountingInformer{ni, 0},
 		Reader:   CacheReader{indexer: ni.GetIndexer(), groupVersionKind: gvk},
+		stop:     make(chan struct{}),
 	}
 	ip.informersByGVK[gvk] = i
 
@@ -221,9 +264,36 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	// TODO(seans): write thorough tests and document what happens here - can you add indexers?
 	// can you add eventhandlers?
 	if ip.started {
-		go i.Informer.Run(ip.stop)
+		fmt.Println("HUH ALREADY STARTED??")
+		//go i.Start(ip.stop)
+		go i.StartWithStopOptions(cache.StopOptions{
+			StopChannel: ip.stop,
+		})
 	}
 	return i, ip.started, nil
+}
+
+// Remove removes an informer entry and stops it if it was running.
+func (ip *specificInformersMap) Remove(gvk schema.GroupVersionKind) error {
+	ip.mu.Lock()
+	defer ip.mu.Unlock()
+
+	entry, ok := ip.informersByGVK[gvk]
+	if !ok {
+		return nil
+	}
+
+	chInformer, ok := entry.Informer.(*HandlerCountingInformer)
+	if !ok {
+		return fmt.Errorf("entry informer is not a HandlerCountingInformer")
+	}
+	if chInformer.CountEventHandlers() != 0 {
+		return fmt.Errorf("attempting to remove informer with %d references", chInformer.CountEventHandlers())
+	}
+
+	close(entry.stop)
+	delete(ip.informersByGVK, gvk)
+	return nil
 }
 
 // newListWatch returns a new ListWatch object that can be used to create a SharedIndexInformer.

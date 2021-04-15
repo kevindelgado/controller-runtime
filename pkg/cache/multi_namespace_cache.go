@@ -94,6 +94,15 @@ func (c *multiNamespaceCache) GetInformerForKind(ctx context.Context, gvk schema
 	return &multiNamespaceInformer{namespaceToInformer: informers}, nil
 }
 
+func (c *multiNamespaceCache) Remove(ctx context.Context, obj runtime.Object) error {
+	for _, cache := range c.namespaceToCache {
+		if err := cache.Remove(ctx, obj); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *multiNamespaceCache) Start(ctx context.Context) error {
 	for ns, cache := range c.namespaceToCache {
 		go func(ns string, cache Cache) {
@@ -185,6 +194,31 @@ type multiNamespaceInformer struct {
 }
 
 var _ Informer = &multiNamespaceInformer{}
+
+func (i *multiNamespaceInformer) RunWithStopOptions(stopOptions toolscache.StopOptions) toolscache.StopReason {
+	// TODO: don't leak goro - collect them with a errgroup or waitgroup
+	for _, informer := range i.namespaceToInformer {
+		go informer.RunWithStopOptions(stopOptions)
+	}
+	return nil
+}
+
+func (i *multiNamespaceInformer) CountEventHandlers() int {
+	total := 0
+	for _, informer := range i.namespaceToInformer {
+		total += informer.CountEventHandlers()
+	}
+	return total
+}
+
+func (i *multiNamespaceInformer) RemoveEventHandler(id int) error {
+	for _, informer := range i.namespaceToInformer {
+		if err := informer.RemoveEventHandler(id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // AddEventHandler adds the handler to each namespaced informer
 func (i *multiNamespaceInformer) AddEventHandler(handler toolscache.ResourceEventHandler) {
