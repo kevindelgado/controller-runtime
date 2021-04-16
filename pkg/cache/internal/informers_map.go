@@ -34,9 +34,12 @@ import (
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	logf "sigs.k8s.io/controller-runtime/pkg/internal/log"
 
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
+
+var log = logf.RuntimeLog.WithName("infmap")
 
 // clientListWatcherFunc knows how to create a ListWatcher
 type createListWatcherFunc func(gvk schema.GroupVersionKind, ip *specificInformersMap) (*cache.ListWatch, error)
@@ -125,6 +128,14 @@ type specificInformersMap struct {
 // Start calls Run on each of the informers and sets started to true.  Blocks on the context.
 // It doesn't return start because it can't return an error, and it's not a runnable directly.
 func (ip *specificInformersMap) Start(ctx context.Context) {
+	log.Info("ip Start")
+	ip.mu.Lock()
+	log.Info("ip map", "len", len(ip.informersByGVK))
+	for gvk, informer := range ip.informersByGVK {
+
+		log.Info("ip map", "gvk", gvk, "informer", informer)
+	}
+	ip.mu.Unlock()
 	func() {
 		ip.mu.Lock()
 		defer ip.mu.Unlock()
@@ -133,8 +144,14 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 		ip.stop = ctx.Done()
 
 		// Start each informer
-		for _, informer := range ip.informersByGVK {
-			go informer.Informer.Run(ctx.Done())
+		for gvk, informer := range ip.informersByGVK {
+
+			log.Info("iterate informer", "gvk", gvk)
+			go func() {
+
+				log.Info("start informer", "gvk", gvk)
+				informer.Informer.Run(ctx.Done())
+			}()
 		}
 
 		// Set started to true so we immediately start any informers added later.
@@ -226,7 +243,16 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	// TODO(seans): write thorough tests and document what happens here - can you add indexers?
 	// can you add eventhandlers?
 	if ip.started {
-		go i.Informer.Run(ip.stop)
+		log.Info("add informer", "gvk", gvk)
+		//go i.Informer.Run(ip.stop)
+		ctx, cancel := context.WithCancel(context.TODO())
+		go func() {
+			<-ip.stop
+			cancel()
+		}()
+		go i.Informer.RunWithStopOptions(ctx, cache.StopOptions{
+			StopOnZeroEventHandlers: true,
+		})
 	}
 	return i, ip.started, nil
 }

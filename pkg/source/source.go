@@ -131,7 +131,16 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 			ks.started <- err
 			return
 		}
-		i.AddEventHandler(internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct})
+		// TODO: this is where we add the event handler and need to store so we can remove it?
+		log.Info("add event handler for", "type", ks.Type)
+		handler := &internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct}
+		handler.ErrorFunc = func() {
+			log.Info("removing event handler")
+			if err := i.RemoveEventHandler(handler); err != nil {
+				log.Error(err, "failed to remove event handler")
+			}
+		}
+		i.AddEventHandler(handler)
 		if !ks.cache.WaitForCacheSync(ctx) {
 			// Would be great to return something more informative here
 			ks.started <- errors.New("cache did not sync")

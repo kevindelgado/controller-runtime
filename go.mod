@@ -2,6 +2,12 @@ module sigs.k8s.io/controller-runtime
 
 go 1.16
 
+replace k8s.io/api => /usr/local/google/home/kevindelgado/.gvm/pkgsets/go1.16/global/src/k8s.io/kubernetes/staging/src/k8s.io/api
+
+replace k8s.io/apimachinery => /usr/local/google/home/kevindelgado/.gvm/pkgsets/go1.16/global/src/k8s.io/kubernetes/staging/src/k8s.io/apimachinery
+
+replace k8s.io/client-go => /usr/local/google/home/kevindelgado/.gvm/pkgsets/go1.16/global/src/k8s.io/kubernetes/staging/src/k8s.io/client-go
+
 require (
 	github.com/evanphx/json-patch v4.9.0+incompatible
 	github.com/fsnotify/fsnotify v1.4.9

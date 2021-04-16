@@ -33,11 +33,14 @@ var log = logf.RuntimeLog.WithName("source").WithName("EventHandler")
 
 var _ cache.ResourceEventHandler = EventHandler{}
 
+// TODO: need to add OnError here
+
 // EventHandler adapts a handler.EventHandler interface to a cache.ResourceEventHandler interface
 type EventHandler struct {
 	EventHandler handler.EventHandler
 	Queue        workqueue.RateLimitingInterface
 	Predicates   []predicate.Predicate
+	ErrorFunc    func()
 }
 
 // OnAdd creates CreateEvent and calls Create on EventHandler
@@ -135,4 +138,13 @@ func (e EventHandler) OnDelete(obj interface{}) {
 
 	// Invoke delete handler
 	e.EventHandler.Delete(d, e.Queue)
+}
+
+func (e EventHandler) OnError(err error) {
+	log.Info("OnError", "err", err)
+	if e.ErrorFunc != nil {
+		log.Info("calling error func")
+		e.ErrorFunc()
+	}
+
 }

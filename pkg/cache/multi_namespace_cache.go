@@ -200,6 +200,15 @@ func (i *multiNamespaceInformer) AddEventHandlerWithResyncPeriod(handler toolsca
 	}
 }
 
+func (i *multiNamespaceInformer) RemoveEventHandler(handler toolscache.ResourceEventHandler) error {
+	for _, informer := range i.namespaceToInformer {
+		if err := informer.RemoveEventHandler(handler); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // AddIndexers adds the indexer for each namespaced informer
 func (i *multiNamespaceInformer) AddIndexers(indexers toolscache.Indexers) error {
 	for _, informer := range i.namespaceToInformer {

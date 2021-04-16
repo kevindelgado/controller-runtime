@@ -128,6 +128,7 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 	}
 
 	c.Log.Info("Starting EventSource", "source", src)
+	c.Log.Info("watch test log", "source", src)
 	return src.Start(c.ctx, evthdler, c.Queue, prct...)
 }
 
@@ -163,6 +164,7 @@ func (c *Controller) Start(ctx context.Context) error {
 		// caches.
 		for _, watch := range c.startWatches {
 			c.Log.Info("Starting EventSource", "source", watch.src)
+			c.Log.Info("ctrlr test log")
 
 			if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
 				return err

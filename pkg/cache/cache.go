@@ -79,6 +79,7 @@ type Informer interface {
 	// specified resync period.  Events to a single handler are delivered sequentially, but there is
 	// no coordination between different handlers.
 	AddEventHandlerWithResyncPeriod(handler toolscache.ResourceEventHandler, resyncPeriod time.Duration)
+	RemoveEventHandler(handler toolscache.ResourceEventHandler) error
 	// AddIndexers adds more indexers to this store.  If you call this after you already have data
 	// in the store, the results are undefined.
 	AddIndexers(indexers toolscache.Indexers) error
