@@ -74,6 +74,8 @@ type MapEntry struct {
 
 	// CacheReader wraps Informer and implements the CacheReader interface for a single type
 	Reader CacheReader
+
+	Cancel context.CancelFunc
 }
 
 // specificInformersMap create and caches Informers for (runtime.Object, schema.GroupVersionKind) pairs.
@@ -151,6 +153,7 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 
 				log.Info("start informer", "gvk", gvk)
 				informer.Informer.Run(ctx.Done())
+				log.Info("informer run  done?")
 			}()
 		}
 
@@ -193,6 +196,7 @@ func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersion
 	}()
 
 	if !ok {
+		log.Info("Get adds the informer to the map")
 		var err error
 		if i, started, err = ip.addInformerToMap(gvk, obj); err != nil {
 			return started, nil, err
@@ -224,6 +228,7 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	var lw *cache.ListWatch
 	lw, err := ip.createListWatcher(gvk, ip)
 	if err != nil {
+		log.Error(err, "createListWatcherFailed")
 		return nil, false, err
 	}
 	ni := cache.NewSharedIndexInformer(lw, obj, resyncPeriod(ip.resync)(), cache.Indexers{
@@ -231,6 +236,7 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	})
 	rm, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
+		log.Error(err, "restmapping fails")
 		return nil, false, err
 	}
 	i := &MapEntry{
@@ -250,9 +256,15 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 			<-ip.stop
 			cancel()
 		}()
-		go i.Informer.RunWithStopOptions(ctx, cache.StopOptions{
-			StopOnZeroEventHandlers: true,
-		})
+		go func() {
+			log.Info("starting informer with stop options")
+			i.Informer.RunWithStopOptions(ctx, cache.StopOptions{
+				StopOnZeroEventHandlers: true,
+			})
+			log.Info("stopping informer, removing from cache")
+			delete(ip.informersByGVK, gvk)
+			//ctrlCancel()
+		}()
 	}
 	return i, ip.started, nil
 }

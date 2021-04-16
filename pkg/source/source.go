@@ -120,6 +120,10 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 	ctx, ks.startCancel = context.WithCancel(ctx)
 	ks.started = make(chan error)
 	go func() {
+		//for {
+
+		//}
+
 		// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
 		i, err := ks.cache.GetInformer(ctx, ks.Type)
 		if err != nil {
@@ -131,6 +135,7 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 			ks.started <- err
 			return
 		}
+
 		// TODO: this is where we add the event handler and need to store so we can remove it?
 		log.Info("add event handler for", "type", ks.Type)
 		handler := &internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct}
@@ -141,6 +146,7 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 			}
 		}
 		i.AddEventHandler(handler)
+
 		if !ks.cache.WaitForCacheSync(ctx) {
 			// Would be great to return something more informative here
 			ks.started <- errors.New("cache did not sync")

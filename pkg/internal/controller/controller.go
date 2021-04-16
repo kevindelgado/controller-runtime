@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/meta"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -151,9 +152,11 @@ func (c *Controller) Start(ctx context.Context) error {
 		<-ctx.Done()
 		c.Queue.ShutDown()
 	}()
+	c.mu.Unlock()
 
 	wg := &sync.WaitGroup{}
-	err := func() error {
+	startWatches := func(ctx context.Context, cancel context.CancelFunc) error {
+		c.mu.Lock()
 		defer c.mu.Unlock()
 
 		// TODO(pwittrock): Reconsider HandleCrash
@@ -162,13 +165,20 @@ func (c *Controller) Start(ctx context.Context) error {
 		// NB(directxman12): launch the sources *before* trying to wait for the
 		// caches to sync so that they have a chance to register their intendeded
 		// caches.
+		c.Log.Info("startWatches", "len", len(c.startWatches))
 		for _, watch := range c.startWatches {
 			c.Log.Info("Starting EventSource", "source", watch.src)
-			c.Log.Info("ctrlr test log")
+			kind, ok := watch.src.(*source.Kind)
+			if !ok {
+				continue
+			}
+			c.Log.Info("kind", "type", kind.Type)
 
 			if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
+				c.Log.Error(err, "error starting src")
 				return err
 			}
+			c.Log.Info("watch.src started successfully")
 		}
 
 		// Start the SharedIndexInformer factories to begin populating the SharedIndexInformer caches
@@ -187,6 +197,7 @@ func (c *Controller) Start(ctx context.Context) error {
 
 				// WaitForSync waits for a definitive timeout, and returns if there
 				// is an error or a timeout
+				c.Log.Info("starting wait for sync")
 				if err := syncingSource.WaitForSync(sourceStartCtx); err != nil {
 					err := fmt.Errorf("failed to wait for %s caches to sync: %w", c.Name, err)
 					c.Log.Error(err, "Could not wait for Cache to sync")
@@ -220,9 +231,39 @@ func (c *Controller) Start(ctx context.Context) error {
 
 		c.Started = true
 		return nil
-	}()
-	if err != nil {
-		return err
+	}
+	resyncTime := 5 * time.Second
+	for {
+		watchCtx, cancel := context.WithCancel(ctx)
+		err := startWatches(watchCtx, cancel)
+		if err != nil {
+			c.Log.Error(err, "startWatches errored out")
+			//return err
+			// if no kind match error, spin or ctx.Done out
+			kindMatchErr := &meta.NoKindMatchError{}
+			if errors.As(err, &kindMatchErr) {
+				c.Log.Info("yes no kind error")
+				select {
+				case <-ctx.Done():
+					c.Log.Info("context fired during kind error spin")
+					break
+				case <-time.NewTimer(resyncTime).C:
+					c.Log.Info("resync timer fired during kind error spin")
+					continue
+				}
+			} else {
+				c.Log.Info("err other than no kind")
+				return err
+			}
+		}
+		select {
+		case <-ctx.Done():
+			c.Log.Info("ctx.Done fired")
+			break
+		case <-watchCtx.Done():
+			c.Log.Info("watchCtx fired")
+			continue
+		}
 	}
 
 	<-ctx.Done()
