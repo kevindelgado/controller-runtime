@@ -173,8 +173,9 @@ func (c *Controller) Start(ctx context.Context) error {
 				continue
 			}
 			c.Log.Info("kind", "type", kind.Type)
+			kind.CtrlCancel = cancel
 
-			if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
+			if err := kind.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
 				c.Log.Error(err, "error starting src")
 				return err
 			}
@@ -210,12 +211,6 @@ func (c *Controller) Start(ctx context.Context) error {
 			}
 		}
 
-		// All the watches have been started, we can reset the local slice.
-		//
-		// We should never hold watches more than necessary, each watch source can hold a backing cache,
-		// which won't be garbage collected if we hold a reference to it.
-		c.startWatches = nil
-
 		// Launch workers to process resources
 		c.Log.Info("Starting workers", "worker count", c.MaxConcurrentReconciles)
 		wg.Add(c.MaxConcurrentReconciles)
@@ -233,7 +228,9 @@ func (c *Controller) Start(ctx context.Context) error {
 		return nil
 	}
 	resyncTime := 5 * time.Second
+crdInstallLoop:
 	for {
+		c.Log.Info("new watchCtx")
 		watchCtx, cancel := context.WithCancel(ctx)
 		err := startWatches(watchCtx, cancel)
 		if err != nil {
@@ -256,20 +253,29 @@ func (c *Controller) Start(ctx context.Context) error {
 				return err
 			}
 		}
+		c.Log.Info("waiting for a signal")
 		select {
 		case <-ctx.Done():
-			c.Log.Info("ctx.Done fired")
-			break
+			c.Log.Info("ctx.Done fired breaking")
+			break crdInstallLoop
 		case <-watchCtx.Done():
 			c.Log.Info("watchCtx fired")
-			continue
+			c.Started = false
+			time.Sleep(time.Second)
+			break
 		}
+		c.Log.Info("out of signal wait select")
 	}
 
-	<-ctx.Done()
+	//<-ctx.Done()
 	c.Log.Info("Shutdown signal received, waiting for all workers to finish")
 	wg.Wait()
 	c.Log.Info("All workers finished")
+	// All the watches have been started, we can reset the local slice.
+	//
+	// We should never hold watches more than necessary, each watch source can hold a backing cache,
+	// which won't be garbage collected if we hold a reference to it.
+	c.startWatches = nil
 	return nil
 }
 

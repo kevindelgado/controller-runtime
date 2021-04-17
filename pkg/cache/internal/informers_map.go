@@ -263,7 +263,6 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 			})
 			log.Info("stopping informer, removing from cache")
 			delete(ip.informersByGVK, gvk)
-			//ctrlCancel()
 		}()
 	}
 	return i, ip.started, nil
@@ -273,18 +272,26 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 func createStructuredListWatch(gvk schema.GroupVersionKind, ip *specificInformersMap) (*cache.ListWatch, error) {
 	// Kubernetes APIs work against Resources, not GroupVersionKinds.  Map the
 	// groupVersionKind to the Resource API we will use.
+	log.Info("structured lw")
+	// TODO: this RESTMapping lookup only fails the first time there is no resource available
+	// I have the false assumption that it will fail whenever the resource is not in discovery
+	// but in reality if a resource is uninstalled, it still appears in the rest mapping
+	log.Info("ip.mapper", "mapper", ip.mapper)
 	mapping, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
+		log.Error(err, "rest mapping")
 		return nil, err
 	}
 
 	client, err := apiutil.RESTClientForGVK(gvk, false, ip.config, ip.codecs)
 	if err != nil {
+		log.Error(err, "rest client")
 		return nil, err
 	}
 	listGVK := gvk.GroupVersion().WithKind(gvk.Kind + "List")
 	listObj, err := ip.Scheme.New(listGVK)
 	if err != nil {
+		log.Error(err, "scheme new")
 		return nil, err
 	}
 
@@ -312,6 +319,7 @@ func createStructuredListWatch(gvk schema.GroupVersionKind, ip *specificInformer
 func createUnstructuredListWatch(gvk schema.GroupVersionKind, ip *specificInformersMap) (*cache.ListWatch, error) {
 	// Kubernetes APIs work against Resources, not GroupVersionKinds.  Map the
 	// groupVersionKind to the Resource API we will use.
+	log.Info("unstructured lw")
 	mapping, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return nil, err
@@ -347,6 +355,7 @@ func createUnstructuredListWatch(gvk schema.GroupVersionKind, ip *specificInform
 func createMetadataListWatch(gvk schema.GroupVersionKind, ip *specificInformersMap) (*cache.ListWatch, error) {
 	// Kubernetes APIs work against Resources, not GroupVersionKinds.  Map the
 	// groupVersionKind to the Resource API we will use.
+	log.Info("meta lw")
 	mapping, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return nil, err

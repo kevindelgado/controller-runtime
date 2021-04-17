@@ -229,3 +229,12 @@ func (i *multiNamespaceInformer) HasSynced() bool {
 	}
 	return true
 }
+
+func (i *multiNamespaceInformer) IsStopped() bool {
+	for _, informer := range i.namespaceToInformer {
+		if ok := informer.IsStopped(); ok {
+			return ok
+		}
+	}
+	return false
+}

@@ -85,6 +85,7 @@ type Informer interface {
 	AddIndexers(indexers toolscache.Indexers) error
 	//HasSynced return true if the informers underlying store has synced
 	HasSynced() bool
+	IsStopped() bool
 }
 
 // Options are the optional arguments for creating a new InformersMap object

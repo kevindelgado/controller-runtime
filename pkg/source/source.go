@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/util/workqueue"
@@ -96,6 +97,8 @@ type Kind struct {
 	// contain an error, startup and syncing finished.
 	started     chan error
 	startCancel func()
+
+	CtrlCancel context.CancelFunc
 }
 
 var _ SyncingSource = &Kind{}
@@ -152,6 +155,27 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 			ks.started <- errors.New("cache did not sync")
 		}
 		close(ks.started)
+		if ks.CtrlCancel != nil {
+			log.Info("ksCtrlCancel not nil")
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						log.Info("ks ctx done")
+						return
+					case <-time.NewTimer(5 * time.Second).C:
+						if i.IsStopped() {
+							log.Info("ks informer isStopped")
+							ks.CtrlCancel()
+							return
+						}
+						log.Info("ks informer not stopped, looping again")
+					}
+				}
+			}()
+		} else {
+			log.Info("ksCtrlCancel is NIL")
+		}
 	}()
 
 	return nil
