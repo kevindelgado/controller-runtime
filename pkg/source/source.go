@@ -148,6 +148,7 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 		// in order for it to be comparable (otherwise i.RemoveEventHandler will fail).
 		handler := &internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct}
 		handler.ErrorFunc = func() {
+			// TODO: only remove if the error is a not found error
 			log.Info("removing event handler")
 			if err := i.RemoveEventHandler(handler); err != nil {
 				log.Error(err, "failed to remove event handler")

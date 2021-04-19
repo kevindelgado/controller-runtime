@@ -179,7 +179,6 @@ func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersion
 	}()
 
 	if !ok {
-		log.Info("Get adds the informer to the map")
 		var err error
 		if i, started, err = ip.addInformerToMap(gvk, obj); err != nil {
 			return started, nil, err
@@ -211,7 +210,6 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	var lw *cache.ListWatch
 	lw, err := ip.createListWatcher(gvk, ip)
 	if err != nil {
-		log.Error(err, "createListWatcherFailed")
 		return nil, false, err
 	}
 	ni := cache.NewSharedIndexInformer(lw, obj, resyncPeriod(ip.resync)(), cache.Indexers{
@@ -219,7 +217,6 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	})
 	rm, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
-		log.Error(err, "restmapping fails")
 		return nil, false, err
 	}
 	i := &MapEntry{

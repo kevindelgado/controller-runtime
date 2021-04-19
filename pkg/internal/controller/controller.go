@@ -174,6 +174,7 @@ func (c *Controller) Start(ctx context.Context) error {
 			}
 			// inject the cancel func into the kind so that it knows how
 			// to shut down if the informer is stopped
+			// TODO: shoudl we pass this stuff in the context instead?
 			kind.InformerSyncInfo = &source.InformerSyncInfo{
 				Cancel:       cancel,
 				ResyncPeriod: defaultResyncPeriod,
@@ -231,6 +232,7 @@ func (c *Controller) Start(ctx context.Context) error {
 	}
 crdInstallLoop:
 	for {
+		// TODO: check rest mapper for existence of CRD instead of blindly starting the watches
 		watchCtx, cancel := context.WithCancel(ctx)
 		err := startWatches(watchCtx, cancel)
 		if err != nil {
