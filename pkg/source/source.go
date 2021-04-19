@@ -37,7 +37,6 @@ import (
 )
 
 var log = logf.RuntimeLog.WithName("source")
-var defaultInformerSyncPeriod = 5 * time.Second
 
 const (
 	// defaultBufferSize is the default number of event notifications that can be buffered.
@@ -102,9 +101,13 @@ type Kind struct {
 	InformerSyncInfo *InformerSyncInfo
 }
 
+// InformerSyncInfo is set by the caller of kind.Start to pass info
+// on what to do when an informer shuts itself down, consisting of:
+// 1. what cancel function to call
+// 2. how long to wait between syncs
 type InformerSyncInfo struct {
-	ResyncPeriod time.Duration
 	Cancel       context.CancelFunc
+	ResyncPeriod time.Duration
 }
 
 var _ SyncingSource = &Kind{}
@@ -129,10 +132,6 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 	ctx, ks.startCancel = context.WithCancel(ctx)
 	ks.started = make(chan error)
 	go func() {
-		//for {
-
-		//}
-
 		// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
 		i, err := ks.cache.GetInformer(ctx, ks.Type)
 		if err != nil {
@@ -145,8 +144,8 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 			return
 		}
 
-		// TODO: this is where we add the event handler and need to store so we can remove it?
-		log.Info("add event handler for", "type", ks.Type)
+		// Note: it is necessary to pass the event handler by reference rather than by value
+		// in order for it to be comparable (otherwise i.RemoveEventHandler will fail).
 		handler := &internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct}
 		handler.ErrorFunc = func() {
 			log.Info("removing event handler")
@@ -162,25 +161,19 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 		}
 		close(ks.started)
 		if ks.InformerSyncInfo != nil {
-			log.Info("ksCtrlCancel not nil")
 			go func() {
 				for {
 					select {
 					case <-ctx.Done():
-						log.Info("ks ctx done")
 						return
 					case <-time.NewTimer(ks.InformerSyncInfo.ResyncPeriod).C:
 						if i.IsStopped() {
-							log.Info("ks informer isStopped")
 							ks.InformerSyncInfo.Cancel()
 							return
 						}
-						log.Info("ks informer not stopped, looping again")
 					}
 				}
 			}()
-		} else {
-			log.Info("ksCtrlCancel is NIL")
 		}
 	}()
 
