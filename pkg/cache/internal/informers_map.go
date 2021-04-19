@@ -74,8 +74,6 @@ type MapEntry struct {
 
 	// CacheReader wraps Informer and implements the CacheReader interface for a single type
 	Reader CacheReader
-
-	Cancel context.CancelFunc
 }
 
 // specificInformersMap create and caches Informers for (runtime.Object, schema.GroupVersionKind) pairs.
@@ -130,14 +128,6 @@ type specificInformersMap struct {
 // Start calls Run on each of the informers and sets started to true.  Blocks on the context.
 // It doesn't return start because it can't return an error, and it's not a runnable directly.
 func (ip *specificInformersMap) Start(ctx context.Context) {
-	log.Info("ip Start")
-	ip.mu.Lock()
-	log.Info("ip map", "len", len(ip.informersByGVK))
-	for gvk, informer := range ip.informersByGVK {
-
-		log.Info("ip map", "gvk", gvk, "informer", informer)
-	}
-	ip.mu.Unlock()
 	func() {
 		ip.mu.Lock()
 		defer ip.mu.Unlock()
@@ -146,15 +136,8 @@ func (ip *specificInformersMap) Start(ctx context.Context) {
 		ip.stop = ctx.Done()
 
 		// Start each informer
-		for gvk, informer := range ip.informersByGVK {
-
-			log.Info("iterate informer", "gvk", gvk)
-			go func() {
-
-				log.Info("start informer", "gvk", gvk)
-				informer.Informer.Run(ctx.Done())
-				log.Info("informer run  done?")
-			}()
+		for _, informer := range ip.informersByGVK {
+			go informer.Informer.Run(ctx.Done())
 		}
 
 		// Set started to true so we immediately start any informers added later.
@@ -248,9 +231,13 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	// Start the Informer if need by
 	// TODO(seans): write thorough tests and document what happens here - can you add indexers?
 	// can you add eventhandlers?
+	//
+	// Run the informer with stop options, ensuring that we shut down the informer
+	// if all its event handelrs are removed
 	if ip.started {
 		log.Info("add informer", "gvk", gvk)
-		//go i.Informer.Run(ip.stop)
+		// Informer.RunWithStopOptions requires a context,
+		// so we need to derive this context from the ip.stop channel
 		ctx, cancel := context.WithCancel(context.TODO())
 		go func() {
 			<-ip.stop
@@ -272,26 +259,18 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 func createStructuredListWatch(gvk schema.GroupVersionKind, ip *specificInformersMap) (*cache.ListWatch, error) {
 	// Kubernetes APIs work against Resources, not GroupVersionKinds.  Map the
 	// groupVersionKind to the Resource API we will use.
-	log.Info("structured lw")
-	// TODO: this RESTMapping lookup only fails the first time there is no resource available
-	// I have the false assumption that it will fail whenever the resource is not in discovery
-	// but in reality if a resource is uninstalled, it still appears in the rest mapping
-	log.Info("ip.mapper", "mapper", ip.mapper)
 	mapping, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
-		log.Error(err, "rest mapping")
 		return nil, err
 	}
 
 	client, err := apiutil.RESTClientForGVK(gvk, false, ip.config, ip.codecs)
 	if err != nil {
-		log.Error(err, "rest client")
 		return nil, err
 	}
 	listGVK := gvk.GroupVersion().WithKind(gvk.Kind + "List")
 	listObj, err := ip.Scheme.New(listGVK)
 	if err != nil {
-		log.Error(err, "scheme new")
 		return nil, err
 	}
 
@@ -319,7 +298,6 @@ func createStructuredListWatch(gvk schema.GroupVersionKind, ip *specificInformer
 func createUnstructuredListWatch(gvk schema.GroupVersionKind, ip *specificInformersMap) (*cache.ListWatch, error) {
 	// Kubernetes APIs work against Resources, not GroupVersionKinds.  Map the
 	// groupVersionKind to the Resource API we will use.
-	log.Info("unstructured lw")
 	mapping, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return nil, err
@@ -355,7 +333,6 @@ func createUnstructuredListWatch(gvk schema.GroupVersionKind, ip *specificInform
 func createMetadataListWatch(gvk schema.GroupVersionKind, ip *specificInformersMap) (*cache.ListWatch, error) {
 	// Kubernetes APIs work against Resources, not GroupVersionKinds.  Map the
 	// groupVersionKind to the Resource API we will use.
-	log.Info("meta lw")
 	mapping, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return nil, err

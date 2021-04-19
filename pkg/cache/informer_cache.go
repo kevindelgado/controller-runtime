@@ -48,7 +48,6 @@ func (*ErrCacheNotStarted) Error() string {
 // informerCache is a Kubernetes Object cache populated from InformersMap.  informerCache wraps an InformersMap.
 type informerCache struct {
 	*internal.InformersMap
-	Cancel context.CancelFunc
 }
 
 // Get implements Reader
