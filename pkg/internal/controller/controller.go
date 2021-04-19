@@ -37,6 +37,7 @@ import (
 )
 
 var _ inject.Injector = &Controller{}
+var defaultResyncPeriod = 5 * time.Second
 
 // Controller implements controller.Controller
 type Controller struct {
@@ -173,7 +174,11 @@ func (c *Controller) Start(ctx context.Context) error {
 				continue
 			}
 			c.Log.Info("kind", "type", kind.Type)
-			kind.CtrlCancel = cancel
+			//kind.CtrlCancel = cancel
+			kind.InformerSyncInfo = &source.InformerSyncInfo{
+				Cancel:       cancel,
+				ResyncPeriod: defaultResyncPeriod,
+			}
 
 			if err := kind.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
 				c.Log.Error(err, "error starting src")
@@ -227,7 +232,6 @@ func (c *Controller) Start(ctx context.Context) error {
 		c.Started = true
 		return nil
 	}
-	resyncTime := 5 * time.Second
 crdInstallLoop:
 	for {
 		c.Log.Info("new watchCtx")
@@ -244,7 +248,7 @@ crdInstallLoop:
 				case <-ctx.Done():
 					c.Log.Info("context fired during kind error spin")
 					break
-				case <-time.NewTimer(resyncTime).C:
+				case <-time.NewTimer(defaultResyncPeriod).C:
 					c.Log.Info("resync timer fired during kind error spin")
 					continue
 				}
@@ -261,6 +265,7 @@ crdInstallLoop:
 		case <-watchCtx.Done():
 			c.Log.Info("watchCtx fired")
 			c.Started = false
+			// TOOD: check if this is still necessary of it there's a better way
 			time.Sleep(time.Second)
 			break
 		}

@@ -37,6 +37,7 @@ import (
 )
 
 var log = logf.RuntimeLog.WithName("source")
+var defaultInformerSyncPeriod = 5 * time.Second
 
 const (
 	// defaultBufferSize is the default number of event notifications that can be buffered.
@@ -98,7 +99,12 @@ type Kind struct {
 	started     chan error
 	startCancel func()
 
-	CtrlCancel context.CancelFunc
+	InformerSyncInfo *InformerSyncInfo
+}
+
+type InformerSyncInfo struct {
+	ResyncPeriod time.Duration
+	Cancel       context.CancelFunc
 }
 
 var _ SyncingSource = &Kind{}
@@ -155,7 +161,7 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 			ks.started <- errors.New("cache did not sync")
 		}
 		close(ks.started)
-		if ks.CtrlCancel != nil {
+		if ks.InformerSyncInfo != nil {
 			log.Info("ksCtrlCancel not nil")
 			go func() {
 				for {
@@ -163,10 +169,10 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 					case <-ctx.Done():
 						log.Info("ks ctx done")
 						return
-					case <-time.NewTimer(5 * time.Second).C:
+					case <-time.NewTimer(ks.InformerSyncInfo.ResyncPeriod).C:
 						if i.IsStopped() {
 							log.Info("ks informer isStopped")
-							ks.CtrlCancel()
+							ks.InformerSyncInfo.Cancel()
 							return
 						}
 						log.Info("ks informer not stopped, looping again")
