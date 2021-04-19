@@ -166,15 +166,14 @@ func (c *Controller) Start(ctx context.Context) error {
 		// NB(directxman12): launch the sources *before* trying to wait for the
 		// caches to sync so that they have a chance to register their intendeded
 		// caches.
-		c.Log.Info("startWatches", "len", len(c.startWatches))
 		for _, watch := range c.startWatches {
 			c.Log.Info("Starting EventSource", "source", watch.src)
 			kind, ok := watch.src.(*source.Kind)
 			if !ok {
 				continue
 			}
-			c.Log.Info("kind", "type", kind.Type)
-			//kind.CtrlCancel = cancel
+			// inject the cancel func into the kind so that it knows how
+			// to shut down if the informer is stopped
 			kind.InformerSyncInfo = &source.InformerSyncInfo{
 				Cancel:       cancel,
 				ResyncPeriod: defaultResyncPeriod,
@@ -184,7 +183,6 @@ func (c *Controller) Start(ctx context.Context) error {
 				c.Log.Error(err, "error starting src")
 				return err
 			}
-			c.Log.Info("watch.src started successfully")
 		}
 
 		// Start the SharedIndexInformer factories to begin populating the SharedIndexInformer caches
@@ -203,7 +201,6 @@ func (c *Controller) Start(ctx context.Context) error {
 
 				// WaitForSync waits for a definitive timeout, and returns if there
 				// is an error or a timeout
-				c.Log.Info("starting wait for sync")
 				if err := syncingSource.WaitForSync(sourceStartCtx); err != nil {
 					err := fmt.Errorf("failed to wait for %s caches to sync: %w", c.Name, err)
 					c.Log.Error(err, "Could not wait for Cache to sync")
@@ -234,45 +231,36 @@ func (c *Controller) Start(ctx context.Context) error {
 	}
 crdInstallLoop:
 	for {
-		c.Log.Info("new watchCtx")
 		watchCtx, cancel := context.WithCancel(ctx)
 		err := startWatches(watchCtx, cancel)
 		if err != nil {
-			c.Log.Error(err, "startWatches errored out")
-			//return err
-			// if no kind match error, spin or ctx.Done out
+			// if no kind match error, wait for resyncPeriod
+			// and then retry
 			kindMatchErr := &meta.NoKindMatchError{}
 			if errors.As(err, &kindMatchErr) {
-				c.Log.Info("yes no kind error")
 				select {
 				case <-ctx.Done():
-					c.Log.Info("context fired during kind error spin")
-					break
+					break crdInstallLoop
 				case <-time.NewTimer(defaultResyncPeriod).C:
-					c.Log.Info("resync timer fired during kind error spin")
 					continue
 				}
 			} else {
-				c.Log.Info("err other than no kind")
+				c.Log.Error(err, "startWatches errored out unexpectedly")
 				return err
 			}
 		}
-		c.Log.Info("waiting for a signal")
+		// startWatches was successfully, now just
+		// wait for either a shutdown signal or
+		// indication that the informer shut itself down
 		select {
 		case <-ctx.Done():
-			c.Log.Info("ctx.Done fired breaking")
 			break crdInstallLoop
 		case <-watchCtx.Done():
-			c.Log.Info("watchCtx fired")
 			c.Started = false
-			// TOOD: check if this is still necessary of it there's a better way
-			time.Sleep(time.Second)
-			break
+			continue
 		}
-		c.Log.Info("out of signal wait select")
 	}
 
-	//<-ctx.Done()
 	c.Log.Info("Shutdown signal received, waiting for all workers to finish")
 	wg.Wait()
 	c.Log.Info("All workers finished")
