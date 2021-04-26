@@ -177,7 +177,7 @@ func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersion
 
 	if !ok {
 		var err error
-		if i, started, err = ip.addInformerToMap(gvk, obj); err != nil {
+		if i, started, err = ip.addInformerToMap(ctx, gvk, obj); err != nil {
 			return started, nil, err
 		}
 	}
@@ -192,7 +192,7 @@ func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersion
 	return started, i, nil
 }
 
-func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, obj runtime.Object) (*MapEntry, bool, error) {
+func (ip *specificInformersMap) addInformerToMap(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object) (*MapEntry, bool, error) {
 	ip.mu.Lock()
 	defer ip.mu.Unlock()
 
@@ -225,8 +225,16 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	// Start the Informer if need by
 	// TODO(seans): write thorough tests and document what happens here - can you add indexers?
 	// can you add eventhandlers?
+	runCtx, cancel := context.WithCancel(ctx)
+	// TODO: necessary?
+	defer cancel()
+	go func() {
+		// TODO: check shomron PR for why this might not be sufficient
+		<-ip.stop
+		cancel()
+	}()
 	if ip.started {
-		go i.Informer.Run(ip.stop)
+		go i.Informer.Run(runCtx.Done())
 	}
 	return i, ip.started, nil
 }

@@ -233,8 +233,10 @@ func (blder *Builder) doWatch() error {
 		}
 		existsInDiscovery := func() bool {
 			if _, err := blder.mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
+				fmt.Printf("NOT in discovery gvk = %+v\n", gvk)
 				return false
 			}
+			fmt.Printf("YES in discovery gvk = %+v\n", gvk)
 			return true
 		}
 
@@ -255,6 +257,7 @@ func (blder *Builder) doWatch() error {
 			return err
 		}
 		src := &source.Kind{Type: typeForSrc}
+		// TODO: handle sporadic watches for owns types too
 		hdler := &handler.EnqueueRequestForOwner{
 			OwnerType:    blder.forInput.object,
 			IsController: true,
@@ -270,6 +273,8 @@ func (blder *Builder) doWatch() error {
 	for _, w := range blder.watchesInput {
 		allPredicates := append([]predicate.Predicate(nil), blder.globalPredicates...)
 		allPredicates = append(allPredicates, w.predicates...)
+
+		// TODO: handle sporadic watches for owns types too
 
 		// If the source of this watch is of type *source.Kind, project it.
 		if srckind, ok := w.src.(*source.Kind); ok {

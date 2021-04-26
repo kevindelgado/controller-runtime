@@ -110,26 +110,52 @@ type SporadicKind struct {
 }
 
 func (sk *SporadicKind) Ready(ctx context.Context, wg *sync.WaitGroup) <-chan struct{} {
+	fmt.Println("src ready called")
 	defer wg.Done()
 	ready := make(chan struct{})
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
+				fmt.Println("src context shutdown")
 				close(ready)
 				return
 			default:
 				if sk.DiscoveryCheck() {
+					fmt.Println("src ready discovery check pass closing ready")
 					close(ready)
 					return
 				}
 				//TODO: parameterize this
+				fmt.Println("src ready discovery check fail, spin")
 				time.Sleep(5 * time.Second)
 			}
 		}
 	}()
 
 	return ready
+}
+
+func (sk *SporadicKind) Start(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface, prct ...predicate.Predicate) error {
+	// TODO: how do we cancel if we never fail the discovery check? (leak?)
+	fmt.Println("src start called")
+	infCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		if !sk.DiscoveryCheck() {
+			fmt.Println("src start discovery check fail, cancelling")
+			cancel()
+			return
+		}
+		// todo parameterize
+		fmt.Println("src start discovery check pass, spinning")
+		time.Sleep(5 * time.Second)
+	}()
+	ret := make(chan error)
+	go func() {
+		fmt.Println("src starting the underlying Kind")
+		ret <- sk.Start(infCtx, handler, queue, prct...)
+	}()
+	return <-ret
 }
 
 var _ SyncingSource = &Kind{}

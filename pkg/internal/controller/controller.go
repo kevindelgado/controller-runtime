@@ -145,6 +145,7 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 
 // Rea
 func (c *Controller) ReadyToStart(ctx context.Context) <-chan struct{} {
+	fmt.Printf("ctrl ReadyToStart len(c.sporadicWatches) = %+v\n", len(c.sporadicWatches))
 	ready := make(chan struct{})
 	if len(c.sporadicWatches) == 0 {
 		close(ready)
@@ -154,12 +155,14 @@ func (c *Controller) ReadyToStart(ctx context.Context) <-chan struct{} {
 	var wg sync.WaitGroup
 	for _, w := range c.sporadicWatches {
 		wg.Add(1)
+		fmt.Println("ctrl checking src ready")
 		go w.src.Ready(ctx, &wg)
 	}
 
 	go func() {
 		wg.Wait()
 		close(ready)
+		fmt.Println("ctrl all sources ready")
 	}()
 	return ready
 }

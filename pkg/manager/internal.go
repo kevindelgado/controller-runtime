@@ -594,15 +594,24 @@ func (cm *controllerManager) startSporadicRunnables() {
 	cm.waitForCache(cm.internalCtx)
 	cm.mu.Unlock()
 
+	// TODO: what locking is necessary here?
+	fmt.Printf("mgr len(cm.sporadicRunnables) = %+v\n", len(cm.sporadicRunnables))
+
 	for _, sr := range cm.sporadicRunnables {
 		go func(sr SporadicRunnable) {
+			fmt.Println("mgr got an sr")
 			for {
+				fmt.Println("mgr waiting on sr ReadyToStart")
 				select {
 				case <-cm.internalCtx.Done():
+					fmt.Println("mgr internal context fired")
 					return
 				case <-sr.Ready(cm.internalCtx):
+					fmt.Println("mgr ready, starting the runnable")
 					cm.startRunnable(sr)
+					fmt.Println("mgr runnable done running")
 				}
+				fmt.Println("mgr done running, looping back to wait on ready")
 			}
 		}(sr)
 	}
