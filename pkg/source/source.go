@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/util/workqueue"
@@ -96,6 +97,17 @@ type Kind struct {
 	// contain an error, startup and syncing finished.
 	started     chan error
 	startCancel func()
+
+	InformerSyncInfo *InformerSyncInfo
+}
+
+// InformerSyncInfo is set by the caller of kind.Start to pass info
+// on what to do when an informer shuts itself down, consisting of:
+// 1. what cancel function to call
+// 2. how long to wait between syncs
+type InformerSyncInfo struct {
+	Cancel       context.CancelFunc
+	ResyncPeriod time.Duration
 }
 
 var _ SyncingSource = &Kind{}
@@ -131,12 +143,39 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 			ks.started <- err
 			return
 		}
-		i.AddEventHandler(internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct})
+
+		// Note: it is necessary to pass the event handler by reference rather than by value
+		// in order for it to be comparable (otherwise i.RemoveEventHandler will fail).
+		handler := &internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct}
+		handler.ErrorFunc = func() {
+			// TODO: only remove if the error is a not found error
+			log.Info("removing event handler")
+			if err := i.RemoveEventHandler(handler); err != nil {
+				log.Error(err, "failed to remove event handler")
+			}
+		}
+		i.AddEventHandler(handler)
+
 		if !ks.cache.WaitForCacheSync(ctx) {
 			// Would be great to return something more informative here
 			ks.started <- errors.New("cache did not sync")
 		}
 		close(ks.started)
+		if ks.InformerSyncInfo != nil {
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.NewTimer(ks.InformerSyncInfo.ResyncPeriod).C:
+						if i.IsStopped() {
+							ks.InformerSyncInfo.Cancel()
+							return
+						}
+					}
+				}
+			}()
+		}
 	}()
 
 	return nil

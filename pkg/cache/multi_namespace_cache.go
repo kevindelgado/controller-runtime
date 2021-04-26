@@ -200,6 +200,16 @@ func (i *multiNamespaceInformer) AddEventHandlerWithResyncPeriod(handler toolsca
 	}
 }
 
+// RemoveEventHandler removes the handler from each namespaced informer
+func (i *multiNamespaceInformer) RemoveEventHandler(handler toolscache.ResourceEventHandler) error {
+	for _, informer := range i.namespaceToInformer {
+		if err := informer.RemoveEventHandler(handler); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // AddIndexers adds the indexer for each namespaced informer
 func (i *multiNamespaceInformer) AddIndexers(indexers toolscache.Indexers) error {
 	for _, informer := range i.namespaceToInformer {
@@ -219,4 +229,15 @@ func (i *multiNamespaceInformer) HasSynced() bool {
 		}
 	}
 	return true
+}
+
+// IsStopped checks if any namespaced informer has stopped.
+// TODO: is this the right behavior?
+func (i *multiNamespaceInformer) IsStopped() bool {
+	for _, informer := range i.namespaceToInformer {
+		if ok := informer.IsStopped(); ok {
+			return ok
+		}
+	}
+	return false
 }

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/meta"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -36,6 +37,7 @@ import (
 )
 
 var _ inject.Injector = &Controller{}
+var defaultResyncPeriod = 5 * time.Second
 
 // Controller implements controller.Controller
 type Controller struct {
@@ -128,6 +130,7 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 	}
 
 	c.Log.Info("Starting EventSource", "source", src)
+	c.Log.Info("watch test log", "source", src)
 	return src.Start(c.ctx, evthdler, c.Queue, prct...)
 }
 
@@ -150,9 +153,11 @@ func (c *Controller) Start(ctx context.Context) error {
 		<-ctx.Done()
 		c.Queue.ShutDown()
 	}()
+	c.mu.Unlock()
 
 	wg := &sync.WaitGroup{}
-	err := func() error {
+	startWatches := func(ctx context.Context, cancel context.CancelFunc) error {
+		c.mu.Lock()
 		defer c.mu.Unlock()
 
 		// TODO(pwittrock): Reconsider HandleCrash
@@ -163,8 +168,20 @@ func (c *Controller) Start(ctx context.Context) error {
 		// caches.
 		for _, watch := range c.startWatches {
 			c.Log.Info("Starting EventSource", "source", watch.src)
+			kind, ok := watch.src.(*source.Kind)
+			if !ok {
+				continue
+			}
+			// inject the cancel func into the kind so that it knows how
+			// to shut down if the informer is stopped
+			// TODO: shoudl we pass this stuff in the context instead?
+			kind.InformerSyncInfo = &source.InformerSyncInfo{
+				Cancel:       cancel,
+				ResyncPeriod: defaultResyncPeriod,
+			}
 
-			if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
+			if err := kind.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
+				c.Log.Error(err, "error starting src")
 				return err
 			}
 		}
@@ -197,12 +214,6 @@ func (c *Controller) Start(ctx context.Context) error {
 			}
 		}
 
-		// All the watches have been started, we can reset the local slice.
-		//
-		// We should never hold watches more than necessary, each watch source can hold a backing cache,
-		// which won't be garbage collected if we hold a reference to it.
-		c.startWatches = nil
-
 		// Launch workers to process resources
 		c.Log.Info("Starting workers", "worker count", c.MaxConcurrentReconciles)
 		wg.Add(c.MaxConcurrentReconciles)
@@ -218,15 +229,48 @@ func (c *Controller) Start(ctx context.Context) error {
 
 		c.Started = true
 		return nil
-	}()
-	if err != nil {
-		return err
+	}
+crdInstallLoop:
+	for {
+		// TODO: check rest mapper for existence of CRD instead of blindly starting the watches
+		watchCtx, cancel := context.WithCancel(ctx)
+		err := startWatches(watchCtx, cancel)
+		if err != nil {
+			// if no kind match error, wait for resyncPeriod
+			// and then retry
+			kindMatchErr := &meta.NoKindMatchError{}
+			if errors.As(err, &kindMatchErr) {
+				select {
+				case <-ctx.Done():
+					break crdInstallLoop
+				case <-time.NewTimer(defaultResyncPeriod).C:
+					continue
+				}
+			} else {
+				c.Log.Error(err, "startWatches errored out unexpectedly")
+				return err
+			}
+		}
+		// startWatches was successfully, now just
+		// wait for either a shutdown signal or
+		// indication that the informer shut itself down
+		select {
+		case <-ctx.Done():
+			break crdInstallLoop
+		case <-watchCtx.Done():
+			c.Started = false
+			continue
+		}
 	}
 
-	<-ctx.Done()
 	c.Log.Info("Shutdown signal received, waiting for all workers to finish")
 	wg.Wait()
 	c.Log.Info("All workers finished")
+	// All the watches have been started, we can reset the local slice.
+	//
+	// We should never hold watches more than necessary, each watch source can hold a backing cache,
+	// which won't be garbage collected if we hold a reference to it.
+	c.startWatches = nil
 	return nil
 }
 

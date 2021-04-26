@@ -38,6 +38,7 @@ type EventHandler struct {
 	EventHandler handler.EventHandler
 	Queue        workqueue.RateLimitingInterface
 	Predicates   []predicate.Predicate
+	ErrorFunc    func()
 }
 
 // OnAdd creates CreateEvent and calls Create on EventHandler
@@ -135,4 +136,11 @@ func (e EventHandler) OnDelete(obj interface{}) {
 
 	// Invoke delete handler
 	e.EventHandler.Delete(d, e.Queue)
+}
+
+func (e EventHandler) OnError(err error) {
+	if e.ErrorFunc != nil {
+		e.ErrorFunc()
+	}
+
 }

@@ -34,9 +34,12 @@ import (
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	logf "sigs.k8s.io/controller-runtime/pkg/internal/log"
 
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
+
+var log = logf.RuntimeLog.WithName("infmap")
 
 // clientListWatcherFunc knows how to create a ListWatcher
 type createListWatcherFunc func(gvk schema.GroupVersionKind, ip *specificInformersMap) (*cache.ListWatch, error)
@@ -225,8 +228,26 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	// Start the Informer if need by
 	// TODO(seans): write thorough tests and document what happens here - can you add indexers?
 	// can you add eventhandlers?
+	//
+	// Run the informer with stop options, ensuring that we shut down the informer
+	// if all its event handelrs are removed
 	if ip.started {
-		go i.Informer.Run(ip.stop)
+		log.Info("add informer", "gvk", gvk)
+		// Informer.RunWithStopOptions requires a context,
+		// so we need to derive this context from the ip.stop channel
+		ctx, cancel := context.WithCancel(context.TODO())
+		go func() {
+			<-ip.stop
+			cancel()
+		}()
+		go func() {
+			log.Info("starting informer with stop options")
+			i.Informer.RunWithStopOptions(ctx, cache.StopOptions{
+				StopOnZeroEventHandlers: true,
+			})
+			log.Info("stopping informer, removing from cache")
+			delete(ip.informersByGVK, gvk)
+		}()
 	}
 	return i, ip.started, nil
 }

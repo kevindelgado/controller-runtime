@@ -79,11 +79,17 @@ type Informer interface {
 	// specified resync period.  Events to a single handler are delivered sequentially, but there is
 	// no coordination between different handlers.
 	AddEventHandlerWithResyncPeriod(handler toolscache.ResourceEventHandler, resyncPeriod time.Duration)
+	// RemoveEventHandler removes an event handler that was previously added.
+	// Only event handlers that are go comparable can be removed, meaning handlers such as
+	// ResourceEventHandlerFuncs can only be removed if they are added by reference rather than by value.
+	RemoveEventHandler(handler toolscache.ResourceEventHandler) error
 	// AddIndexers adds more indexers to this store.  If you call this after you already have data
 	// in the store, the results are undefined.
 	AddIndexers(indexers toolscache.Indexers) error
 	//HasSynced return true if the informers underlying store has synced
 	HasSynced() bool
+	// IsStopped reports whether the informer has already been stopped.
+	IsStopped() bool
 }
 
 // Options are the optional arguments for creating a new InformersMap object
