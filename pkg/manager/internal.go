@@ -71,6 +71,8 @@ type controllerManager struct {
 	// These Runnables will not be blocked by lead election.
 	nonLeaderElectionRunnables []Runnable
 
+	sporadicRunnables []SporadicRunnable
+
 	// recorderProvider is used to generate event recorders that will be injected into Controllers
 	// (and EventHandlers, Sources and Predicates).
 	recorderProvider *intrec.Provider
@@ -207,6 +209,10 @@ func (cm *controllerManager) Add(r Runnable) error {
 		cm.nonLeaderElectionRunnables = append(cm.nonLeaderElectionRunnables, r)
 	} else if hasCache, ok := r.(hasCache); ok {
 		cm.caches = append(cm.caches, hasCache)
+
+	} else if sporadicRunnable, ok := r.(SporadicRunnable); ok {
+		cm.sporadicRunnables = append(cm.sporadicRunnables, sporadicRunnable)
+
 	} else {
 		shouldStart = cm.startedLeader
 		cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
@@ -581,6 +587,25 @@ func (cm *controllerManager) waitForRunnableToEnd(shutdownCancel context.CancelF
 		return fmt.Errorf("failed waiting for all runnables to end within grace period of %s: %w", cm.gracefulShutdownTimeout, err)
 	}
 	return nil
+}
+
+func (cm *controllerManager) startSporadicRunnables() {
+	cm.mu.Lock()
+	cm.waitForCache(cm.internalCtx)
+	cm.mu.Unlock()
+
+	for _, sr := range cm.sporadicRunnables {
+		go func(sr SporadicRunnable) {
+			for {
+				select {
+				case <-cm.internalCtx.Done():
+					return
+				case <-sr.Ready(cm.internalCtx):
+					cm.startRunnable(sr)
+				}
+			}
+		}(sr)
+	}
 }
 
 func (cm *controllerManager) startNonLeaderElectionRunnables() {

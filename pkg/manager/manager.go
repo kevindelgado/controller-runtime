@@ -290,6 +290,12 @@ func (r RunnableFunc) Start(ctx context.Context) error {
 	return r(ctx)
 }
 
+type SporadicRunnable interface {
+	Runnable
+	Ready(ctx context.Context) ReadySignal
+}
+type ReadySignal <-chan struct{}
+
 // LeaderElectionRunnable knows if a Runnable needs to be run in the leader election mode.
 type LeaderElectionRunnable interface {
 	// NeedLeaderElection returns true if the Runnable needs to be run in the leader election mode.

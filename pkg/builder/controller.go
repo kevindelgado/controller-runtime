@@ -72,6 +72,7 @@ type ForInput struct {
 	predicates       []predicate.Predicate
 	objectProjection objectProjection
 	err              error
+	sporadic         bool
 }
 
 // For defines the type of Object being *reconciled*, and configures the ControllerManagedBy to respond to create / delete /
@@ -97,6 +98,7 @@ type OwnsInput struct {
 	object           client.Object
 	predicates       []predicate.Predicate
 	objectProjection objectProjection
+	sporadic         bool
 }
 
 // Owns defines types of Objects being *generated* by the ControllerManagedBy, and configures the ControllerManagedBy to respond to
@@ -118,6 +120,7 @@ type WatchesInput struct {
 	eventhandler     handler.EventHandler
 	predicates       []predicate.Predicate
 	objectProjection objectProjection
+	sporadic         bool
 }
 
 // Watches exposes the lower-level ControllerManagedBy Watches functions through the builder.  Consider using
@@ -222,7 +225,23 @@ func (blder *Builder) doWatch() error {
 	if err != nil {
 		return err
 	}
-	src := &source.Kind{Type: typeForSrc}
+	var src source.Source
+	if blder.forInput.sporadic {
+		gvk, err := getGvk(blder.forInput.object, blder.mgr.GetScheme())
+		if err != nil {
+			return err
+		}
+		existsInDiscovery := func() bool {
+			if _, err := blder.mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
+				return false
+			}
+			return true
+		}
+
+		src = &source.SporadicKind{Kind: source.Kind{Type: typeForSrc}, DiscoveryCheck: existsInDiscovery}
+	} else {
+		src = &source.Kind{Type: typeForSrc}
+	}
 	hdler := &handler.EnqueueRequestForObject{}
 	allPredicates := append(blder.globalPredicates, blder.forInput.predicates...)
 	if err := blder.ctrl.Watch(src, hdler, allPredicates...); err != nil {

@@ -81,7 +81,8 @@ type Controller struct {
 	CacheSyncTimeout time.Duration
 
 	// startWatches maintains a list of sources, handlers, and predicates to start when the controller is started.
-	startWatches []watchDescription
+	startWatches    []watchDescription
+	sporadicWatches []sporadicWatchDescription
 
 	// Log is used to log messages to users during reconciliation, or for example when a watch is started.
 	Log logr.Logger
@@ -90,6 +91,12 @@ type Controller struct {
 // watchDescription contains all the information necessary to start a watch.
 type watchDescription struct {
 	src        source.Source
+	handler    handler.EventHandler
+	predicates []predicate.Predicate
+}
+
+type sporadicWatchDescription struct {
+	src        source.SporadicSource
 	handler    handler.EventHandler
 	predicates []predicate.Predicate
 }
@@ -119,6 +126,11 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 		}
 	}
 
+	if sporadicSource, ok := src.(source.SporadicSource); ok && !c.Started {
+		c.sporadicWatches = append(c.sporadicWatches, sporadicWatchDescription{src: sporadicSource, handler: evthdler, predicates: prct})
+		return nil
+	}
+
 	// Controller hasn't started yet, store the watches locally and return.
 	//
 	// These watches are going to be held on the controller struct until the manager or user calls Start(...).
@@ -129,6 +141,27 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 
 	c.Log.Info("Starting EventSource", "source", src)
 	return src.Start(c.ctx, evthdler, c.Queue, prct...)
+}
+
+// Rea
+func (c *Controller) ReadyToStart(ctx context.Context) <-chan struct{} {
+	ready := make(chan struct{})
+	if len(c.sporadicWatches) == 0 {
+		close(ready)
+		return ready
+	}
+
+	var wg sync.WaitGroup
+	for _, w := range c.sporadicWatches {
+		wg.Add(1)
+		go w.src.Ready(ctx, &wg)
+	}
+
+	go func() {
+		wg.Wait()
+		close(ready)
+	}()
+	return ready
 }
 
 // Start implements controller.Controller

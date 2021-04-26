@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/util/workqueue"
@@ -55,6 +56,11 @@ type Source interface {
 	// Start is internal and should be called only by the Controller to register an EventHandler with the Informer
 	// to enqueue reconcile.Requests.
 	Start(context.Context, handler.EventHandler, workqueue.RateLimitingInterface, ...predicate.Predicate) error
+}
+
+type SporadicSource interface {
+	Source
+	Ready(ctx context.Context, wg *sync.WaitGroup) <-chan struct{}
 }
 
 // SyncingSource is a source that needs syncing prior to being usable. The controller
@@ -96,6 +102,34 @@ type Kind struct {
 	// contain an error, startup and syncing finished.
 	started     chan error
 	startCancel func()
+}
+
+type SporadicKind struct {
+	Kind
+	DiscoveryCheck func() bool
+}
+
+func (sk *SporadicKind) Ready(ctx context.Context, wg *sync.WaitGroup) <-chan struct{} {
+	defer wg.Done()
+	ready := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				close(ready)
+				return
+			default:
+				if sk.DiscoveryCheck() {
+					close(ready)
+					return
+				}
+				//TODO: parameterize this
+				time.Sleep(5 * time.Second)
+			}
+		}
+	}()
+
+	return ready
 }
 
 var _ SyncingSource = &Kind{}
