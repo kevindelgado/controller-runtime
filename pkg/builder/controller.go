@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -233,20 +234,31 @@ func (blder *Builder) doWatch() error {
 			return err
 		}
 		fmt.Printf("gvk = %+v\n", gvk)
+		dc, err := discovery.NewDiscoveryClientForConfig(blder.mgr.GetConfig())
+		if err != nil {
+			return err
+		}
 		// Bug: once in the rest mapper always claims it exists, even when it doesn't
 		existsInDiscovery := func() bool {
-			mapper := blder.mgr.GetRESTMapper()
-			//fmt.Printf("mapper = %+v\n", mapper)
-			mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-			fmt.Printf("mapping = %+v\n", mapping)
+			//mapper := blder.mgr.GetRESTMapper()
+			////fmt.Printf("mapper = %+v\n", mapper)
+			//mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+			//fmt.Printf("mapping = %+v\n", mapping)
+
+			resources, err := dc.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
 			if err != nil {
 				fmt.Printf("NOT in discovery gvk = %+v\n", gvk)
 				return false
 			}
-			fmt.Printf("YES in discovery gvk = %+v\n", gvk)
-			return true
+			for _, res := range resources.APIResources {
+				if res.Kind == gvk.Kind {
+					fmt.Printf("YES in discovery gvk = %+v\n", gvk)
+					return true
+				}
+			}
+			fmt.Printf("NOT in discovery kind = %+v\n", gvk)
+			return false
 		}
-
 		src = &source.SporadicKind{Kind: source.Kind{Type: typeForSrc}, DiscoveryCheck: existsInDiscovery}
 	} else {
 		src = &source.Kind{Type: typeForSrc}
