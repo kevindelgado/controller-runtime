@@ -741,6 +741,7 @@ func (cm *controllerManager) startRunnable(r Runnable) {
 	}()
 }
 
+// TODO: is there a better way to do this?
 func (cm *controllerManager) startBlockingRunnable(r Runnable) {
 	cm.waitForRunnable.Add(1)
 	defer cm.waitForRunnable.Done()

@@ -18,15 +18,22 @@ package controller_test
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllertest"
+	"sigs.k8s.io/controller-runtime/pkg/controller/testdata/foo"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -173,6 +180,119 @@ var _ = Describe("controller", func() {
 			close(done)
 		}, 5)
 	})
+
+	FIt("should reconcile when the CRD is installed, uninstalled, reinstalled", func(done Done) {
+		By("Initializing the scheme and crd")
+		s := runtime.NewScheme()
+		f := &foo.Foo{}
+		gvk := f.GroupVersionKind()
+		options := manager.Options{}
+		//s.AddKnownTypeWithName(gvk, f)
+		//fl := &foo.FooList{}
+		//s.AddKnownTypes(gvk.GroupVersion(), fl)
+		foo.AddToScheme(s)
+		options.Scheme = s
+		crdPath := filepath.Join(".", "testadata", "crds", "foocrd.yaml")
+		crdOpts := envtest.CRDInstallOptions{
+			Paths: []string{crdPath},
+		}
+		_ = crdOpts
+
+		By("Creating the Manager")
+		cm, err := manager.New(cfg, options)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Creating the Controller")
+		instance, err := controller.New("foo-controller", cm, controller.Options{
+			Reconciler: reconcile.Func(
+				func(_ context.Context, request reconcile.Request) (reconcile.Result, error) {
+					reconciled <- request
+					return reconcile.Result{}, nil
+				}),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Watching foo CRD as sporadic kinds")
+		dc := clientset.Discovery()
+		Expect(err).NotTo(HaveOccurred())
+		existsInDiscovery := func() bool {
+			resources, err := dc.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
+			if err != nil {
+				fmt.Printf("NOT in discovery gvk = %+v\n", gvk)
+				return false
+			}
+			for _, res := range resources.APIResources {
+				if res.Kind == gvk.Kind {
+					fmt.Printf("YES in discovery gvk = %+v\n", gvk)
+					return true
+				}
+			}
+			fmt.Printf("NOT in discovery kind = %+v\n", gvk)
+			return false
+		}
+		err = instance.Watch(&source.SporadicKind{Kind: source.Kind{Type: f}, DiscoveryCheck: existsInDiscovery}, &handler.EnqueueRequestForObject{})
+		Expect(err).NotTo(HaveOccurred())
+		//err = cm.GetClient().Get(ctx, types.NamespacedName{Name: "foo"}, &corev1.Namespace{})
+		//Expect(err).To(Equal(&cache.ErrCacheNotStarted{}))
+		//err = cm.GetClient().List(ctx, &corev1.NamespaceList{})
+		//Expect(err).To(Equal(&cache.ErrCacheNotStarted{}))
+
+		By("Starting the Manager")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			defer GinkgoRecover()
+			Expect(cm.Start(ctx)).NotTo(HaveOccurred())
+		}()
+
+		testFoo := &foo.Foo{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-foo"},
+		}
+
+		expectedReconcileRequest := reconcile.Request{NamespacedName: types.NamespacedName{
+			Namespace: "default",
+			Name:      "test-foo",
+		}}
+		_ = expectedReconcileRequest
+
+		By("Creating the rest client")
+		config := *cfg
+		gv := gvk.GroupVersion()
+		config.ContentConfig.GroupVersion = &gv
+		config.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+		client, err := rest.RESTClientFor(&config)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Failing to create a foo object if the crd isn't installed")
+		result := foo.Foo{}
+		err = client.Post().Namespace("default").Resource("foos").Body(testFoo).Do(ctx).Into(&result)
+		Expect(err).To(HaveOccurred())
+
+		By("Installing the CRD")
+		//fmt.Println("test installing crd")
+		//crds, err := envtest.InstallCRDs(cfg, crdOpts)
+		//fmt.Println("test crd installed")
+		//Expect(err).NotTo(HaveOccurred())
+		//Expect(len(crds)).To(Equal(1))
+
+		By("Invoking Reconcile for foo Create")
+
+		By("Uninstalling the CRD")
+		//err = envtest.UninstallCRDs(cfg, crdOpts)
+		//Expect(err).NotTo(HaveOccurred())
+
+		By("Failing get foo object if the crd isn't installed")
+
+		By("Reinstalling the CRD")
+
+		By("Invoking Reconcile for foo Create")
+
+		By("Uninstalling the CRD")
+
+		close(done)
+
+	}, 20)
+
 })
 
 func truePtr() *bool {

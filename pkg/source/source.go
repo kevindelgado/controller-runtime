@@ -59,7 +59,7 @@ type Source interface {
 }
 
 type SporadicSource interface {
-	//Source
+	Source
 	StartNotifyDone(context.Context, handler.EventHandler, workqueue.RateLimitingInterface, ...predicate.Predicate) (<-chan struct{}, error)
 	Ready(ctx context.Context, wg *sync.WaitGroup) <-chan struct{}
 }
@@ -162,6 +162,11 @@ func (sk *SporadicKind) StartNotifyDone(ctx context.Context, handler handler.Eve
 	}()
 	err := <-ret
 	return infCtx.Done(), err
+}
+
+func (sk *SporadicKind) Start(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface, prct ...predicate.Predicate) error {
+	_, err := sk.StartNotifyDone(ctx, handler, queue, prct...)
+	return err
 }
 
 var _ SyncingSource = &Kind{}

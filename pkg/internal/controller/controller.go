@@ -126,6 +126,7 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 		}
 	}
 
+	// These get held on indefinitely
 	if sporadicSource, ok := src.(source.SporadicSource); ok && !c.Started {
 		c.sporadicWatches = append(c.sporadicWatches, sporadicWatchDescription{src: sporadicSource, handler: evthdler, predicates: prct})
 		return nil
@@ -210,6 +211,8 @@ func (c *Controller) Start(ctx context.Context) error {
 		}
 
 		c.Log.Info("sporadic watches", "len", len(c.sporadicWatches))
+		// TODO: do we need a waitgroup here so that we only clear c.Started once all the watches are done
+		// or should a single done watch trigger all the others to stop, or something else?
 		for _, watch := range c.sporadicWatches {
 			c.Log.Info("sporadic Starting EventSource", "source", watch.src)
 

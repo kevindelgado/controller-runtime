@@ -238,13 +238,7 @@ func (blder *Builder) doWatch() error {
 		if err != nil {
 			return err
 		}
-		// Bug: once in the rest mapper always claims it exists, even when it doesn't
 		existsInDiscovery := func() bool {
-			//mapper := blder.mgr.GetRESTMapper()
-			////fmt.Printf("mapper = %+v\n", mapper)
-			//mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-			//fmt.Printf("mapping = %+v\n", mapping)
-
 			resources, err := dc.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
 			if err != nil {
 				fmt.Printf("NOT in discovery gvk = %+v\n", gvk)
