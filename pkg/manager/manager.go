@@ -292,10 +292,8 @@ func (r RunnableFunc) Start(ctx context.Context) error {
 
 type SporadicRunnable interface {
 	Runnable
-	// TODO: rename to ReadyToStart, use ReadySignal
 	Ready(ctx context.Context) <-chan struct{}
 }
-type ReadySignal <-chan struct{}
 
 // LeaderElectionRunnable knows if a Runnable needs to be run in the leader election mode.
 type LeaderElectionRunnable interface {

@@ -204,6 +204,8 @@ func (cm *controllerManager) Add(r Runnable) error {
 	var shouldStart bool
 
 	// Add the runnable to the leader election or the non-leaderelection list
+	// TODO: currently we treat sporadicRunnable as separate from LER/non-LER
+	// but we shouldn't right?
 	if sporadicRunnable, ok := r.(SporadicRunnable); ok {
 		fmt.Println("mgr adding sporadic")
 		cm.sporadicRunnables = append(cm.sporadicRunnables, sporadicRunnable)
@@ -600,6 +602,13 @@ func (cm *controllerManager) waitForRunnableToEnd(shutdownCancel context.CancelF
 	return nil
 }
 
+// For each sporadicRunnable fire off a goroutine that
+// blocks on the runnable's Ready (or the shutdown context).
+//
+// Once ready, call a version of start runnable that blocks
+// until the runnable is terminated.
+//
+// Once the runnable stops, loop back and wait for ready again.
 func (cm *controllerManager) startSporadicRunnables() {
 	cm.mu.Lock()
 	cm.waitForCache(cm.internalCtx)
@@ -741,6 +750,7 @@ func (cm *controllerManager) startRunnable(r Runnable) {
 	}()
 }
 
+// like startRunnable, but blocking
 // TODO: is there a better way to do this?
 func (cm *controllerManager) startBlockingRunnable(r Runnable) {
 	cm.waitForRunnable.Add(1)

@@ -181,6 +181,8 @@ func (c *Controller) Start(ctx context.Context) error {
 
 	c.initMetrics()
 
+	// wrap the given context in a cancellable one so that we can
+	// stop sporadic watches when their done signal fires
 	ctrlCtx, ctrlCancel := context.WithCancel(ctx)
 
 	// Set the internal context.
@@ -216,10 +218,13 @@ func (c *Controller) Start(ctx context.Context) error {
 		for _, watch := range c.sporadicWatches {
 			c.Log.Info("sporadic Starting EventSource", "source", watch.src)
 
+			// Call a version of the Start method specific to SporadicSource that returns
+			// a done signal that fires when the CRD is no longer installed (and the informer gets shut down)
 			done, err := watch.src.StartNotifyDone(ctrlCtx, watch.handler, c.Queue, watch.predicates...)
 			if err != nil {
 				return err
 			}
+			// wait for done to fire and when it does, shut down the controller and reset c.Started
 			go func() {
 				fmt.Println("ctrl waiting for done")
 				<-done

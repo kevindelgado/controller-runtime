@@ -137,6 +137,8 @@ func (sk *SporadicKind) Ready(ctx context.Context, wg *sync.WaitGroup) <-chan st
 	return ready
 }
 
+// StartNotifyDone starts the kind while concurrently polling discovery to confirm the CRD is still installed
+// It returns a signal that fires when the CRD is uninstalled, which also triggers a cacnel of the underlying informer
 func (sk *SporadicKind) StartNotifyDone(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface, prct ...predicate.Predicate) (<-chan struct{}, error) {
 	// TODO: how do we cancel if we never fail the discovery check? (leak?)
 	fmt.Println("src start called")

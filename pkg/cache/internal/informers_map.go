@@ -225,10 +225,9 @@ func (ip *specificInformersMap) addInformerToMap(ctx context.Context, gvk schema
 	// Start the Informer if need by
 	// TODO(seans): write thorough tests and document what happens here - can you add indexers?
 	// can you add eventhandlers?
-	runCtx, cancel := context.WithCancel(ctx)
 	// TODO: not cancelling? (leak)
+	runCtx, cancel := context.WithCancel(ctx)
 	go func() {
-		// TODO: check shomron PR for why this might not be sufficient
 		<-ip.stop
 		fmt.Println("inf ip stopped")
 		cancel()
