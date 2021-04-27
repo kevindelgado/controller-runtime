@@ -111,9 +111,9 @@ type SporadicKind struct {
 
 func (sk *SporadicKind) Ready(ctx context.Context, wg *sync.WaitGroup) <-chan struct{} {
 	fmt.Println("src ready called")
-	defer wg.Done()
 	ready := make(chan struct{})
 	go func() {
+		defer wg.Done()
 		for {
 			select {
 			case <-ctx.Done():
@@ -141,19 +141,23 @@ func (sk *SporadicKind) Start(ctx context.Context, handler handler.EventHandler,
 	fmt.Println("src start called")
 	infCtx, cancel := context.WithCancel(ctx)
 	go func() {
-		if !sk.DiscoveryCheck() {
-			fmt.Println("src start discovery check fail, cancelling")
-			cancel()
-			return
+		for {
+			if !sk.DiscoveryCheck() {
+				fmt.Println("src start discovery check fail, cancelling")
+				cancel()
+				return
+			}
+			// todo parameterize
+			fmt.Println("src start discovery check pass, spinning")
+			time.Sleep(5 * time.Second)
 		}
-		// todo parameterize
-		fmt.Println("src start discovery check pass, spinning")
-		time.Sleep(5 * time.Second)
 	}()
 	ret := make(chan error)
 	go func() {
 		fmt.Println("src starting the underlying Kind")
-		ret <- sk.Start(infCtx, handler, queue, prct...)
+		err := sk.Kind.Start(infCtx, handler, queue, prct...)
+		fmt.Printf("err = %+v\n", err)
+		ret <- err
 	}()
 	return <-ret
 }
@@ -183,6 +187,7 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 		// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
 		i, err := ks.cache.GetInformer(ctx, ks.Type)
 		if err != nil {
+			fmt.Printf("kind GetInformer err = %+v\n", err)
 			kindMatchErr := &meta.NoKindMatchError{}
 			if errors.As(err, &kindMatchErr) {
 				log.Error(err, "if kind is a CRD, it should be installed before calling Start",
@@ -196,6 +201,7 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 			// Would be great to return something more informative here
 			ks.started <- errors.New("cache did not sync")
 		}
+		fmt.Println("kind closing ks.started")
 		close(ks.started)
 	}()
 

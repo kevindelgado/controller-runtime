@@ -226,13 +226,20 @@ func (blder *Builder) doWatch() error {
 		return err
 	}
 	var src source.Source
+	fmt.Printf("blder.forInput.sporadic = %+v\n", blder.forInput.sporadic)
 	if blder.forInput.sporadic {
 		gvk, err := getGvk(blder.forInput.object, blder.mgr.GetScheme())
 		if err != nil {
 			return err
 		}
+		fmt.Printf("gvk = %+v\n", gvk)
+		// Bug: once in the rest mapper always claims it exists, even when it doesn't
 		existsInDiscovery := func() bool {
-			if _, err := blder.mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
+			mapper := blder.mgr.GetRESTMapper()
+			//fmt.Printf("mapper = %+v\n", mapper)
+			mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+			fmt.Printf("mapping = %+v\n", mapping)
+			if err != nil {
 				fmt.Printf("NOT in discovery gvk = %+v\n", gvk)
 				return false
 			}

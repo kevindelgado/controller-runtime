@@ -204,16 +204,18 @@ func (cm *controllerManager) Add(r Runnable) error {
 	var shouldStart bool
 
 	// Add the runnable to the leader election or the non-leaderelection list
-	if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
+	if sporadicRunnable, ok := r.(SporadicRunnable); ok {
+		fmt.Println("mgr adding sporadic")
+		cm.sporadicRunnables = append(cm.sporadicRunnables, sporadicRunnable)
+	} else if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
+		fmt.Println("mgr adding non ler")
 		shouldStart = cm.started
 		cm.nonLeaderElectionRunnables = append(cm.nonLeaderElectionRunnables, r)
 	} else if hasCache, ok := r.(hasCache); ok {
 		cm.caches = append(cm.caches, hasCache)
 
-	} else if sporadicRunnable, ok := r.(SporadicRunnable); ok {
-		cm.sporadicRunnables = append(cm.sporadicRunnables, sporadicRunnable)
-
 	} else {
+		fmt.Println("mgr adding ler")
 		shouldStart = cm.startedLeader
 		cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
 	}
@@ -433,6 +435,7 @@ func (cm *controllerManager) serveHealthProbes() {
 
 		// Run server
 		cm.startRunnable(RunnableFunc(func(_ context.Context) error {
+			cm.logger.Info("starting health probes")
 			if err := server.Serve(cm.healthProbeListener); err != nil && err != http.ErrServerClosed {
 				return err
 			}
@@ -449,6 +452,7 @@ func (cm *controllerManager) serveHealthProbes() {
 }
 
 func (cm *controllerManager) Start(ctx context.Context) (err error) {
+	fmt.Println("mgr Start")
 	if err := cm.Add(cm.cluster); err != nil {
 		return fmt.Errorf("failed to add cluster to runnables: %w", err)
 	}
@@ -492,6 +496,8 @@ func (cm *controllerManager) Start(ctx context.Context) (err error) {
 		go cm.serveHealthProbes()
 	}
 
+	go cm.startSporadicRunnables()
+
 	go cm.startNonLeaderElectionRunnables()
 
 	go func() {
@@ -507,14 +513,19 @@ func (cm *controllerManager) Start(ctx context.Context) (err error) {
 		}
 	}()
 
+	fmt.Println("mgr start waiting on signal")
 	select {
 	case <-ctx.Done():
+		fmt.Println("mgr start ctx.Done fired")
 		// We are done
 		return nil
 	case err := <-cm.errChan:
+		fmt.Printf("mgr start errChan fired, %v\n", err)
 		// Error starting or running a runnable
 		return err
 	}
+	fmt.Println("mgr start finished")
+	return nil
 }
 
 // engageStopProcedure signals all runnables to stop, reads potential errors
@@ -608,7 +619,8 @@ func (cm *controllerManager) startSporadicRunnables() {
 					return
 				case <-sr.Ready(cm.internalCtx):
 					fmt.Println("mgr ready, starting the runnable")
-					cm.startRunnable(sr)
+					// this doesn't block
+					cm.startBlockingRunnable(sr)
 					fmt.Println("mgr runnable done running")
 				}
 				fmt.Println("mgr done running, looping back to wait on ready")
@@ -625,6 +637,7 @@ func (cm *controllerManager) startNonLeaderElectionRunnables() {
 
 	// Start the non-leaderelection Runnables after the cache has synced
 	for _, c := range cm.nonLeaderElectionRunnables {
+		fmt.Println("nonLER")
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
 		cm.startRunnable(c)
@@ -639,6 +652,7 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 
 	// Start the leader election Runnables after the cache has synced
 	for _, c := range cm.leaderElectionRunnables {
+		fmt.Println("LER")
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
 		cm.startRunnable(c)
@@ -719,9 +733,19 @@ func (cm *controllerManager) Elected() <-chan struct{} {
 func (cm *controllerManager) startRunnable(r Runnable) {
 	cm.waitForRunnable.Add(1)
 	go func() {
+		fmt.Printf("starting runnable, %v", r)
 		defer cm.waitForRunnable.Done()
 		if err := r.Start(cm.internalCtx); err != nil {
 			cm.errChan <- err
 		}
 	}()
+}
+
+func (cm *controllerManager) startBlockingRunnable(r Runnable) {
+	cm.waitForRunnable.Add(1)
+	defer cm.waitForRunnable.Done()
+	fmt.Printf("starting sporadic runnable, %v", r)
+	if err := r.Start(cm.internalCtx); err != nil {
+		cm.errChan <- err
+	}
 }

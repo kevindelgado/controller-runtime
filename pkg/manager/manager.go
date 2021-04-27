@@ -292,7 +292,8 @@ func (r RunnableFunc) Start(ctx context.Context) error {
 
 type SporadicRunnable interface {
 	Runnable
-	Ready(ctx context.Context) ReadySignal
+	// TODO: rename to ReadyToStart, use ReadySignal
+	Ready(ctx context.Context) <-chan struct{}
 }
 type ReadySignal <-chan struct{}
 

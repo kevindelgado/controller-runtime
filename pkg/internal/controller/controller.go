@@ -144,7 +144,7 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 }
 
 // Rea
-func (c *Controller) ReadyToStart(ctx context.Context) <-chan struct{} {
+func (c *Controller) Ready(ctx context.Context) <-chan struct{} {
 	fmt.Printf("ctrl ReadyToStart len(c.sporadicWatches) = %+v\n", len(c.sporadicWatches))
 	ready := make(chan struct{})
 	if len(c.sporadicWatches) == 0 {
@@ -160,7 +160,9 @@ func (c *Controller) ReadyToStart(ctx context.Context) <-chan struct{} {
 	}
 
 	go func() {
+		fmt.Println("ctrl ready wg wait starting")
 		wg.Wait()
+		fmt.Println("ctrl ready wg wait done closing ready")
 		close(ready)
 		fmt.Println("ctrl all sources ready")
 	}()
@@ -199,6 +201,15 @@ func (c *Controller) Start(ctx context.Context) error {
 		// caches.
 		for _, watch := range c.startWatches {
 			c.Log.Info("Starting EventSource", "source", watch.src)
+
+			if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
+				return err
+			}
+		}
+
+		c.Log.Info("sporadic watches", "len", len(c.sporadicWatches))
+		for _, watch := range c.sporadicWatches {
+			c.Log.Info("sporadic Starting EventSource", "source", watch.src)
 
 			if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
 				return err
