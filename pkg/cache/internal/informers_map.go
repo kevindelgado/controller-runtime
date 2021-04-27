@@ -235,9 +235,14 @@ func (ip *specificInformersMap) addInformerToMap(ctx context.Context, gvk schema
 	}()
 	if ip.started {
 		fmt.Println("inf Run")
-		go i.Informer.Run(runCtx.Done())
+		go func() {
+			i.Informer.Run(runCtx.Done())
+			fmt.Println("informer done running, remove from map")
+			delete(ip.informersByGVK, gvk)
+
+		}()
 	}
-	fmt.Println("inf done")
+	fmt.Println("inf addInformer returning")
 	return i, ip.started, nil
 }
 

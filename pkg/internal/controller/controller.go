@@ -180,12 +180,14 @@ func (c *Controller) Start(ctx context.Context) error {
 
 	c.initMetrics()
 
+	ctrlCtx, ctrlCancel := context.WithCancel(ctx)
+
 	// Set the internal context.
-	c.ctx = ctx
+	c.ctx = ctrlCtx
 
 	c.Queue = c.MakeQueue()
 	go func() {
-		<-ctx.Done()
+		<-ctrlCtx.Done()
 		c.Queue.ShutDown()
 	}()
 
@@ -202,7 +204,7 @@ func (c *Controller) Start(ctx context.Context) error {
 		for _, watch := range c.startWatches {
 			c.Log.Info("Starting EventSource", "source", watch.src)
 
-			if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
+			if err := watch.src.Start(ctrlCtx, watch.handler, c.Queue, watch.predicates...); err != nil {
 				return err
 			}
 		}
@@ -211,9 +213,17 @@ func (c *Controller) Start(ctx context.Context) error {
 		for _, watch := range c.sporadicWatches {
 			c.Log.Info("sporadic Starting EventSource", "source", watch.src)
 
-			if err := watch.src.Start(ctx, watch.handler, c.Queue, watch.predicates...); err != nil {
+			done, err := watch.src.StartNotifyDone(ctrlCtx, watch.handler, c.Queue, watch.predicates...)
+			if err != nil {
 				return err
 			}
+			go func() {
+				fmt.Println("ctrl waiting for done")
+				<-done
+				fmt.Println("ctrl done fired, ctrlCancelling")
+				c.Started = false
+				ctrlCancel()
+			}()
 		}
 
 		// Start the SharedIndexInformer factories to begin populating the SharedIndexInformer caches
@@ -227,7 +237,7 @@ func (c *Controller) Start(ctx context.Context) error {
 
 			if err := func() error {
 				// use a context with timeout for launching sources and syncing caches.
-				sourceStartCtx, cancel := context.WithTimeout(ctx, c.CacheSyncTimeout)
+				sourceStartCtx, cancel := context.WithTimeout(ctrlCtx, c.CacheSyncTimeout)
 				defer cancel()
 
 				// WaitForSync waits for a definitive timeout, and returns if there
@@ -258,7 +268,7 @@ func (c *Controller) Start(ctx context.Context) error {
 				defer wg.Done()
 				// Run a worker thread that just dequeues items, processes them, and marks them done.
 				// It enforces that the reconcileHandler is never invoked concurrently with the same object.
-				for c.processNextWorkItem(ctx) {
+				for c.processNextWorkItem(ctrlCtx) {
 				}
 			}()
 		}
@@ -270,7 +280,7 @@ func (c *Controller) Start(ctx context.Context) error {
 		return err
 	}
 
-	<-ctx.Done()
+	<-ctrlCtx.Done()
 	c.Log.Info("Shutdown signal received, waiting for all workers to finish")
 	wg.Wait()
 	c.Log.Info("All workers finished")

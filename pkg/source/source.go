@@ -59,7 +59,8 @@ type Source interface {
 }
 
 type SporadicSource interface {
-	Source
+	//Source
+	StartNotifyDone(context.Context, handler.EventHandler, workqueue.RateLimitingInterface, ...predicate.Predicate) (<-chan struct{}, error)
 	Ready(ctx context.Context, wg *sync.WaitGroup) <-chan struct{}
 }
 
@@ -136,7 +137,7 @@ func (sk *SporadicKind) Ready(ctx context.Context, wg *sync.WaitGroup) <-chan st
 	return ready
 }
 
-func (sk *SporadicKind) Start(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface, prct ...predicate.Predicate) error {
+func (sk *SporadicKind) StartNotifyDone(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface, prct ...predicate.Predicate) (<-chan struct{}, error) {
 	// TODO: how do we cancel if we never fail the discovery check? (leak?)
 	fmt.Println("src start called")
 	infCtx, cancel := context.WithCancel(ctx)
@@ -159,7 +160,8 @@ func (sk *SporadicKind) Start(ctx context.Context, handler handler.EventHandler,
 		fmt.Printf("err = %+v\n", err)
 		ret <- err
 	}()
-	return <-ret
+	err := <-ret
+	return infCtx.Done(), err
 }
 
 var _ SyncingSource = &Kind{}
