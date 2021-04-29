@@ -269,11 +269,11 @@ var _ = Describe("controller", func() {
 		Expect(err).To(HaveOccurred())
 
 		By("Installing the CRD")
-		//fmt.Println("test installing crd")
-		//crds, err := envtest.InstallCRDs(cfg, crdOpts)
-		//fmt.Println("test crd installed")
-		//Expect(err).NotTo(HaveOccurred())
-		//Expect(len(crds)).To(Equal(1))
+		fmt.Println("test installing crd")
+		crds, err := envtest.InstallCRDs(cfg, crdOpts)
+		fmt.Println("test crd installed")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(len(crds)).To(Equal(1))
 
 		By("Invoking Reconcile for foo Create")
 
