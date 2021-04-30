@@ -26,10 +26,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -344,15 +346,26 @@ var _ = Describe("controller", func() {
 		Expect(<-reconciled).To(Equal(expectedReconcileRequest))
 
 		By("Uninstalling the CRD")
+		errNotFound := errors.NewGenericServerResponse(404, "POST", schema.GroupResource{Group: "bar.example.com", Resource: "foos"}, "", "404 page not found", 0, true)
 		err = envtest.UninstallCRDs(cfg, crdOpts)
 		Expect(err).NotTo(HaveOccurred())
-		// TODO: wait for crd to uninstall instead of sleeping
-		time.Sleep(6 * time.Second)
+		// wait for discovery to not recognize the resource after uninstall
+		wait.PollImmediate(15*time.Millisecond, 50*time.Millisecond, func() (bool, error) {
+			if _, err := clientset.Discovery().ServerResourcesForGroupVersion(gvk.Group + "/" + gvk.Version); err != nil {
+				if err.Error() == "the server could not find the requested resource" {
+					return true, nil
+				}
+			}
+			return false, nil
+		})
 
-		By("Failing get foo object if the crd isn't installed")
+		By("Failing create foo object if the crd isn't installed")
 		err = c.Create(ctx, testFoo)
 		// TODO: check the error is the correct one
-		Expect(err).To(HaveOccurred())
+		fmt.Printf("fail err = %+v\n", err)
+		//Expect(err).To(HaveOccurred())
+		//errNotFound := errors.NewNotFound(schema.GroupResource{Group: "bar.example.com", Resource: "foos"}, "")
+		Expect(err).To(Equal(errNotFound))
 		//Expect(err).NotTo(HaveOccurred())
 
 		By("Reinstalling the CRD")
@@ -407,8 +420,19 @@ var _ = Describe("controller", func() {
 		By("Uninstalling the CRD")
 		err = envtest.UninstallCRDs(cfg, crdOpts)
 		Expect(err).NotTo(HaveOccurred())
-		// TODO: wait for crd to uninstall instead of sleeping
-		time.Sleep(6 * time.Second)
+		// wait for discovery to not recognize the resource after uninstall
+		wait.PollImmediate(15*time.Millisecond, 50*time.Millisecond, func() (bool, error) {
+			if _, err := clientset.Discovery().ServerResourcesForGroupVersion(gvk.Group + "/" + gvk.Version); err != nil {
+				if err.Error() == "the server could not find the requested resource" {
+					return true, nil
+				}
+			}
+			return false, nil
+		})
+
+		By("Failing create foo object if the crd isn't installed")
+		err = c.Create(ctx, testFoo)
+		Expect(err).To(Equal(errNotFound))
 
 		fmt.Println("done")
 		close(done)
