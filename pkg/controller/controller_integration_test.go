@@ -332,7 +332,7 @@ var _ = Describe("controller", func() {
 
 		// sleep
 		// TODO: remove once working if not needed
-		time.Sleep(6 * time.Second)
+		//time.Sleep(6 * time.Second)
 
 		By("Invoking Reconcile for foo Create")
 		fmt.Println("post foo")
@@ -346,21 +346,75 @@ var _ = Describe("controller", func() {
 		By("Uninstalling the CRD")
 		err = envtest.UninstallCRDs(cfg, crdOpts)
 		Expect(err).NotTo(HaveOccurred())
+		// TODO: wait for crd to uninstall instead of sleeping
+		time.Sleep(6 * time.Second)
 
 		By("Failing get foo object if the crd isn't installed")
 		err = c.Create(ctx, testFoo)
+		// TODO: check the error is the correct one
 		Expect(err).To(HaveOccurred())
+		//Expect(err).NotTo(HaveOccurred())
 
 		By("Reinstalling the CRD")
+		crds, err = envtest.InstallCRDs(cfg, crdOpts)
+		fmt.Println("test crd installed")
+		fmt.Printf("err = %+v\n", err)
+		fmt.Printf("crds = %+v\n", crds[0])
+		Expect(err).NotTo(HaveOccurred())
+		Expect(len(crds)).To(Equal(1))
+
+		By("Expecting to find the CRD")
+		crdv1 = &apiextensionsv1.CustomResourceDefinition{}
+		err = c.Get(context.TODO(), types.NamespacedName{Name: "foos.bar.example.com"}, crdv1)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(crdv1.Spec.Names.Kind).To(Equal("Foo"))
+
+		err = envtest.WaitForCRDs(cfg, []client.Object{
+			&v1beta1.CustomResourceDefinition{
+				Spec: v1beta1.CustomResourceDefinitionSpec{
+					Group: "bar.example.com",
+					Names: v1beta1.CustomResourceDefinitionNames{
+						Kind:   "Foo",
+						Plural: "foos",
+					},
+					Versions: []v1beta1.CustomResourceDefinitionVersion{
+						{
+							Name:    "v1",
+							Storage: true,
+							Served:  true,
+						},
+					}},
+			},
+		},
+			crdOpts,
+		//envtest.CRDInstallOptions{MaxTime: 50 * time.Millisecond, PollInterval: 15 * time.Millisecond},
+		)
+		Expect(err).NotTo(HaveOccurred())
+		fmt.Println("crds done waiting")
 
 		By("Invoking Reconcile for foo Create")
+		fmt.Println("post foo")
+		//result = foo.Foo{}
+		//err = client.Post().Namespace("default").Resource("foos").Body(testFoo).Do(ctx).Into(&result)
+		// TODO: create a new testFoo?
+		// clear the resourceVersion
+		testFoo.ResourceVersion = ""
+		err = c.Create(ctx, testFoo)
+		fmt.Printf("err = %+v\n", err)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(<-reconciled).To(Equal(expectedReconcileRequest))
 
 		By("Uninstalling the CRD")
+		err = envtest.UninstallCRDs(cfg, crdOpts)
+		Expect(err).NotTo(HaveOccurred())
+		// TODO: wait for crd to uninstall instead of sleeping
+		time.Sleep(6 * time.Second)
 
 		fmt.Println("done")
 		close(done)
 
-	}, 15)
+		// TODO: make the test faster?
+	}, 25)
 
 })
 
