@@ -18,7 +18,7 @@ package controller_test
 
 import (
 	"context"
-	"fmt"
+	goerrors "errors"
 	"path/filepath"
 	"time"
 
@@ -27,6 +27,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -188,9 +189,6 @@ var _ = Describe("controller", func() {
 	FIt("should reconcile when the CRD is installed, uninstalled, reinstalled", func(done Done) {
 		By("Initializing the scheme and crd")
 		s := runtime.NewScheme()
-		//s.AddKnownTypeWithName(gvk, f)
-		//fl := &foo.FooList{}
-		//s.AddKnownTypes(gvk.GroupVersion(), fl)
 		err := v1beta1.AddToScheme(s)
 		Expect(err).NotTo(HaveOccurred())
 		err = apiextensionsv1.AddToScheme(s)
@@ -215,37 +213,26 @@ var _ = Describe("controller", func() {
 
 		By("Watching foo CRD as sporadic kinds")
 		f := &foo.Foo{}
-		//gvk := f.GroupVersionKind()
 		gvk := schema.GroupVersionKind{
 			Group:   "bar.example.com",
 			Version: "v1",
 			Kind:    "Foo",
 		}
-		fmt.Printf("gvk = %+v\n", gvk)
-		dc := clientset.Discovery()
 		Expect(err).NotTo(HaveOccurred())
 		existsInDiscovery := func() bool {
-			resources, err := dc.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
+			resources, err := clientset.Discovery().ServerResourcesForGroupVersion(gvk.GroupVersion().String())
 			if err != nil {
-				fmt.Printf("NOT in discovery gvk = %+v\n", gvk)
 				return false
 			}
 			for _, res := range resources.APIResources {
 				if res.Kind == gvk.Kind {
-					fmt.Printf("YES in discovery gvk = %+v\n", gvk)
 					return true
 				}
 			}
-			fmt.Printf("NOT in discovery kind = %+v\n", gvk)
 			return false
 		}
 		err = instance.Watch(&source.SporadicKind{Kind: source.Kind{Type: f}, DiscoveryCheck: existsInDiscovery}, &handler.EnqueueRequestForObject{})
 		Expect(err).NotTo(HaveOccurred())
-		//err = cm.GetClient().Get(ctx, types.NamespacedName{Name: "foo"}, &corev1.Namespace{})
-		//err = cm.GetClient().Get(context.TODO(), types.NamespacedName{Name: "foos.bar.example.com"}, &corev1.Namespace{})
-		//Expect(err).To(Equal(&cache.ErrCacheNotStarted{}))
-		//err = cm.GetClient().List(ctx, &corev1.NamespaceList{})
-		//Expect(err).To(Equal(&cache.ErrCacheNotStarted{}))
 
 		By("Starting the Manager")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -261,51 +248,30 @@ var _ = Describe("controller", func() {
 		}
 
 		expectedReconcileRequest := reconcile.Request{NamespacedName: types.NamespacedName{
-			Namespace: "default",
 			Name:      "test-foo",
+			Namespace: "default",
 		}}
 		_ = expectedReconcileRequest
 
-		By("Creating the client")
-		//config := *cfg
-		//gv := gvk.GroupVersion()
-		//config.ContentConfig.GroupVersion = &gv
-		//config.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
-		//client, err := rest.RESTClientFor(&config)
-		// TODO: I don't think Mapper is actually necessary, recheck once working
-		//c, err := client.New(cfg, client.Options{Scheme: s, Mapper: cm.GetRESTMapper()})
-		c := cm.GetClient()
-		Expect(err).NotTo(HaveOccurred())
-
 		By("Failing to create a foo object if the crd isn't installed")
-		//result := foo.Foo{}
-		//err = client.Post().Namespace("default").Resource("foos").Body(testFoo).Do(ctx).Into(&result)
-		err = c.Create(ctx, testFoo)
-		Expect(err).To(HaveOccurred())
-
-		// TODO: remove, see if necessary
-		//time.Sleep(6 * time.Second)
+		kindMatchErr := &meta.NoKindMatchError{}
+		err = cm.GetClient().Create(ctx, testFoo)
+		Expect(goerrors.As(err, &kindMatchErr)).To(BeTrue())
 
 		By("Installing the CRD")
-		fmt.Println("test installing crd")
-
 		crdPath := filepath.Join(".", "testdata", "foo", "foocrd.yaml")
-		// TODO: fmt
 		crdOpts := envtest.CRDInstallOptions{
 			Paths:        []string{crdPath},
 			MaxTime:      50 * time.Millisecond,
 			PollInterval: 15 * time.Millisecond,
 		}
 		crds, err := envtest.InstallCRDs(cfg, crdOpts)
-		fmt.Println("test crd installed")
-		fmt.Printf("err = %+v\n", err)
-		fmt.Printf("crds = %+v\n", crds[0])
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(crds)).To(Equal(1))
 
 		By("Expecting to find the CRD")
 		crdv1 := &apiextensionsv1.CustomResourceDefinition{}
-		err = c.Get(context.TODO(), types.NamespacedName{Name: "foos.bar.example.com"}, crdv1)
+		err = cm.GetClient().Get(context.TODO(), types.NamespacedName{Name: "foos.bar.example.com"}, crdv1)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(crdv1.Spec.Names.Kind).To(Equal("Foo"))
 
@@ -327,26 +293,15 @@ var _ = Describe("controller", func() {
 			},
 		},
 			crdOpts,
-		//envtest.CRDInstallOptions{MaxTime: 50 * time.Millisecond, PollInterval: 15 * time.Millisecond},
 		)
 		Expect(err).NotTo(HaveOccurred())
-		fmt.Println("crds done waiting")
-
-		// sleep
-		// TODO: remove once working if not needed
-		//time.Sleep(6 * time.Second)
 
 		By("Invoking Reconcile for foo Create")
-		fmt.Println("post foo")
-		//result = foo.Foo{}
-		//err = client.Post().Namespace("default").Resource("foos").Body(testFoo).Do(ctx).Into(&result)
-		err = c.Create(ctx, testFoo)
-		fmt.Printf("err = %+v\n", err)
+		err = cm.GetClient().Create(ctx, testFoo)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(<-reconciled).To(Equal(expectedReconcileRequest))
 
 		By("Uninstalling the CRD")
-		errNotFound := errors.NewGenericServerResponse(404, "POST", schema.GroupResource{Group: "bar.example.com", Resource: "foos"}, "", "404 page not found", 0, true)
 		err = envtest.UninstallCRDs(cfg, crdOpts)
 		Expect(err).NotTo(HaveOccurred())
 		// wait for discovery to not recognize the resource after uninstall
@@ -360,25 +315,18 @@ var _ = Describe("controller", func() {
 		})
 
 		By("Failing create foo object if the crd isn't installed")
-		err = c.Create(ctx, testFoo)
-		// TODO: check the error is the correct one
-		fmt.Printf("fail err = %+v\n", err)
-		//Expect(err).To(HaveOccurred())
-		//errNotFound := errors.NewNotFound(schema.GroupResource{Group: "bar.example.com", Resource: "foos"}, "")
+		errNotFound := errors.NewGenericServerResponse(404, "POST", schema.GroupResource{Group: "bar.example.com", Resource: "foos"}, "", "404 page not found", 0, true)
+		err = cm.GetClient().Create(ctx, testFoo)
 		Expect(err).To(Equal(errNotFound))
-		//Expect(err).NotTo(HaveOccurred())
 
 		By("Reinstalling the CRD")
 		crds, err = envtest.InstallCRDs(cfg, crdOpts)
-		fmt.Println("test crd installed")
-		fmt.Printf("err = %+v\n", err)
-		fmt.Printf("crds = %+v\n", crds[0])
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(crds)).To(Equal(1))
 
 		By("Expecting to find the CRD")
 		crdv1 = &apiextensionsv1.CustomResourceDefinition{}
-		err = c.Get(context.TODO(), types.NamespacedName{Name: "foos.bar.example.com"}, crdv1)
+		err = cm.GetClient().Get(context.TODO(), types.NamespacedName{Name: "foos.bar.example.com"}, crdv1)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(crdv1.Spec.Names.Kind).To(Equal("Foo"))
 
@@ -400,20 +348,12 @@ var _ = Describe("controller", func() {
 			},
 		},
 			crdOpts,
-		//envtest.CRDInstallOptions{MaxTime: 50 * time.Millisecond, PollInterval: 15 * time.Millisecond},
 		)
 		Expect(err).NotTo(HaveOccurred())
-		fmt.Println("crds done waiting")
 
 		By("Invoking Reconcile for foo Create")
-		fmt.Println("post foo")
-		//result = foo.Foo{}
-		//err = client.Post().Namespace("default").Resource("foos").Body(testFoo).Do(ctx).Into(&result)
-		// TODO: create a new testFoo?
-		// clear the resourceVersion
 		testFoo.ResourceVersion = ""
-		err = c.Create(ctx, testFoo)
-		fmt.Printf("err = %+v\n", err)
+		err = cm.GetClient().Create(ctx, testFoo)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(<-reconciled).To(Equal(expectedReconcileRequest))
 
@@ -431,14 +371,11 @@ var _ = Describe("controller", func() {
 		})
 
 		By("Failing create foo object if the crd isn't installed")
-		err = c.Create(ctx, testFoo)
+		err = cm.GetClient().Create(ctx, testFoo)
 		Expect(err).To(Equal(errNotFound))
 
-		fmt.Println("done")
 		close(done)
-
-		// TODO: make the test faster?
-	}, 25)
+	}, 10)
 
 })
 
