@@ -186,7 +186,7 @@ var _ = Describe("controller", func() {
 		}, 5)
 	})
 
-	FIt("should reconcile when the CRD is installed, uninstalled, reinstalled", func(done Done) {
+	It("should reconcile when the CRD is installed, uninstalled, reinstalled", func(done Done) {
 		By("Initializing the scheme and crd")
 		s := runtime.NewScheme()
 		err := v1beta1.AddToScheme(s)
