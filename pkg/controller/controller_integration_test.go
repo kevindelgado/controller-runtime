@@ -20,19 +20,21 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllertest"
-	"sigs.k8s.io/controller-runtime/pkg/controller/testdata/foo"
+	foo "sigs.k8s.io/controller-runtime/pkg/controller/testdata/foo/v1"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -184,19 +186,16 @@ var _ = Describe("controller", func() {
 	FIt("should reconcile when the CRD is installed, uninstalled, reinstalled", func(done Done) {
 		By("Initializing the scheme and crd")
 		s := runtime.NewScheme()
-		f := &foo.Foo{}
-		gvk := f.GroupVersionKind()
-		options := manager.Options{}
 		//s.AddKnownTypeWithName(gvk, f)
 		//fl := &foo.FooList{}
 		//s.AddKnownTypes(gvk.GroupVersion(), fl)
-		foo.AddToScheme(s)
-		options.Scheme = s
-		crdPath := filepath.Join(".", "testadata", "crds", "foocrd.yaml")
-		crdOpts := envtest.CRDInstallOptions{
-			Paths: []string{crdPath},
-		}
-		_ = crdOpts
+		err := v1beta1.AddToScheme(s)
+		Expect(err).NotTo(HaveOccurred())
+		err = apiextensionsv1.AddToScheme(s)
+		Expect(err).NotTo(HaveOccurred())
+		err = foo.AddToScheme(s)
+		Expect(err).NotTo(HaveOccurred())
+		options := manager.Options{Scheme: s}
 
 		By("Creating the Manager")
 		cm, err := manager.New(cfg, options)
@@ -213,6 +212,14 @@ var _ = Describe("controller", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Watching foo CRD as sporadic kinds")
+		f := &foo.Foo{}
+		//gvk := f.GroupVersionKind()
+		gvk := schema.GroupVersionKind{
+			Group:   "bar.example.com",
+			Version: "v1",
+			Kind:    "Foo",
+		}
+		fmt.Printf("gvk = %+v\n", gvk)
 		dc := clientset.Discovery()
 		Expect(err).NotTo(HaveOccurred())
 		existsInDiscovery := func() bool {
@@ -233,6 +240,7 @@ var _ = Describe("controller", func() {
 		err = instance.Watch(&source.SporadicKind{Kind: source.Kind{Type: f}, DiscoveryCheck: existsInDiscovery}, &handler.EnqueueRequestForObject{})
 		Expect(err).NotTo(HaveOccurred())
 		//err = cm.GetClient().Get(ctx, types.NamespacedName{Name: "foo"}, &corev1.Namespace{})
+		//err = cm.GetClient().Get(context.TODO(), types.NamespacedName{Name: "foos.bar.example.com"}, &corev1.Namespace{})
 		//Expect(err).To(Equal(&cache.ErrCacheNotStarted{}))
 		//err = cm.GetClient().List(ctx, &corev1.NamespaceList{})
 		//Expect(err).To(Equal(&cache.ErrCacheNotStarted{}))
@@ -246,7 +254,8 @@ var _ = Describe("controller", func() {
 		}()
 
 		testFoo := &foo.Foo{
-			ObjectMeta: metav1.ObjectMeta{Name: "test-foo"},
+			TypeMeta:   metav1.TypeMeta{Kind: gvk.Kind, APIVersion: gvk.GroupVersion().String()},
+			ObjectMeta: metav1.ObjectMeta{Name: "test-foo", Namespace: "default"},
 		}
 
 		expectedReconcileRequest := reconcile.Request{NamespacedName: types.NamespacedName{
@@ -255,33 +264,92 @@ var _ = Describe("controller", func() {
 		}}
 		_ = expectedReconcileRequest
 
-		By("Creating the rest client")
-		config := *cfg
-		gv := gvk.GroupVersion()
-		config.ContentConfig.GroupVersion = &gv
-		config.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
-		client, err := rest.RESTClientFor(&config)
+		By("Creating the client")
+		//config := *cfg
+		//gv := gvk.GroupVersion()
+		//config.ContentConfig.GroupVersion = &gv
+		//config.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+		//client, err := rest.RESTClientFor(&config)
+		// TODO: I don't think Mapper is actually necessary, recheck once working
+		//c, err := client.New(cfg, client.Options{Scheme: s, Mapper: cm.GetRESTMapper()})
+		c := cm.GetClient()
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Failing to create a foo object if the crd isn't installed")
-		result := foo.Foo{}
-		err = client.Post().Namespace("default").Resource("foos").Body(testFoo).Do(ctx).Into(&result)
+		//result := foo.Foo{}
+		//err = client.Post().Namespace("default").Resource("foos").Body(testFoo).Do(ctx).Into(&result)
+		err = c.Create(ctx, testFoo)
 		Expect(err).To(HaveOccurred())
+
+		// TODO: remove, see if necessary
+		//time.Sleep(6 * time.Second)
 
 		By("Installing the CRD")
 		fmt.Println("test installing crd")
+
+		crdPath := filepath.Join(".", "testdata", "foo", "foocrd.yaml")
+		// TODO: fmt
+		crdOpts := envtest.CRDInstallOptions{
+			Paths:        []string{crdPath},
+			MaxTime:      50 * time.Millisecond,
+			PollInterval: 15 * time.Millisecond,
+		}
 		crds, err := envtest.InstallCRDs(cfg, crdOpts)
 		fmt.Println("test crd installed")
+		fmt.Printf("err = %+v\n", err)
+		fmt.Printf("crds = %+v\n", crds[0])
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(crds)).To(Equal(1))
 
+		By("Expecting to find the CRD")
+		crdv1 := &apiextensionsv1.CustomResourceDefinition{}
+		err = c.Get(context.TODO(), types.NamespacedName{Name: "foos.bar.example.com"}, crdv1)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(crdv1.Spec.Names.Kind).To(Equal("Foo"))
+
+		err = envtest.WaitForCRDs(cfg, []client.Object{
+			&v1beta1.CustomResourceDefinition{
+				Spec: v1beta1.CustomResourceDefinitionSpec{
+					Group: "bar.example.com",
+					Names: v1beta1.CustomResourceDefinitionNames{
+						Kind:   "Foo",
+						Plural: "foos",
+					},
+					Versions: []v1beta1.CustomResourceDefinitionVersion{
+						{
+							Name:    "v1",
+							Storage: true,
+							Served:  true,
+						},
+					}},
+			},
+		},
+			crdOpts,
+		//envtest.CRDInstallOptions{MaxTime: 50 * time.Millisecond, PollInterval: 15 * time.Millisecond},
+		)
+		Expect(err).NotTo(HaveOccurred())
+		fmt.Println("crds done waiting")
+
+		// sleep
+		// TODO: remove once working if not needed
+		time.Sleep(6 * time.Second)
+
 		By("Invoking Reconcile for foo Create")
+		fmt.Println("post foo")
+		//result = foo.Foo{}
+		//err = client.Post().Namespace("default").Resource("foos").Body(testFoo).Do(ctx).Into(&result)
+		err = c.Create(ctx, testFoo)
+		fmt.Printf("err = %+v\n", err)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(<-reconciled).To(Equal(expectedReconcileRequest))
 
 		By("Uninstalling the CRD")
-		//err = envtest.UninstallCRDs(cfg, crdOpts)
-		//Expect(err).NotTo(HaveOccurred())
+		err = envtest.UninstallCRDs(cfg, crdOpts)
+		Expect(err).NotTo(HaveOccurred())
 
 		By("Failing get foo object if the crd isn't installed")
+		err = c.Create(ctx, testFoo)
+		Expect(err).To(HaveOccurred())
 
 		By("Reinstalling the CRD")
 
@@ -289,9 +357,10 @@ var _ = Describe("controller", func() {
 
 		By("Uninstalling the CRD")
 
+		fmt.Println("done")
 		close(done)
 
-	}, 20)
+	}, 15)
 
 })
 

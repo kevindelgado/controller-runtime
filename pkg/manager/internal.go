@@ -755,7 +755,7 @@ func (cm *controllerManager) startRunnable(r Runnable) {
 func (cm *controllerManager) startBlockingRunnable(r Runnable) {
 	cm.waitForRunnable.Add(1)
 	defer cm.waitForRunnable.Done()
-	fmt.Printf("starting sporadic runnable, %v", r)
+	fmt.Printf("starting sporadic runnable, %v\n", r)
 	if err := r.Start(cm.internalCtx); err != nil {
 		cm.errChan <- err
 	}

@@ -167,6 +167,7 @@ func (ip *specificInformersMap) HasSyncedFuncs() []cache.InformerSynced {
 // Get will create a new Informer and add it to the map of specificInformersMap if none exists.  Returns
 // the Informer from the map.
 func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object) (bool, *MapEntry, error) {
+	fmt.Println("inf Get")
 	// Return the informer if it is found
 	i, started, ok := func() (*MapEntry, bool, bool) {
 		ip.mu.RLock()
@@ -193,6 +194,7 @@ func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersion
 }
 
 func (ip *specificInformersMap) addInformerToMap(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object) (*MapEntry, bool, error) {
+	fmt.Println("inf addInf")
 	ip.mu.Lock()
 	defer ip.mu.Unlock()
 
@@ -203,10 +205,13 @@ func (ip *specificInformersMap) addInformerToMap(ctx context.Context, gvk schema
 		return i, ip.started, nil
 	}
 
+	fmt.Println("inf createLW")
+	fmt.Printf("inf gvk = %+v\n", gvk)
 	// Create a NewSharedIndexInformer and add it to the map.
 	var lw *cache.ListWatch
 	lw, err := ip.createListWatcher(gvk, ip)
 	if err != nil {
+		fmt.Printf("inf createLW err = %+v\n", err)
 		return nil, false, err
 	}
 	ni := cache.NewSharedIndexInformer(lw, obj, resyncPeriod(ip.resync)(), cache.Indexers{
@@ -214,8 +219,11 @@ func (ip *specificInformersMap) addInformerToMap(ctx context.Context, gvk schema
 	})
 	rm, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
+		fmt.Printf("RESTMapping err = %+v\n", err)
+		fmt.Printf("gvk = %+v\n", gvk)
 		return nil, false, err
 	}
+	fmt.Println("inf RM success")
 	i := &MapEntry{
 		Informer: ni,
 		Reader:   CacheReader{indexer: ni.GetIndexer(), groupVersionKind: gvk, scopeName: rm.Scope.Name()},

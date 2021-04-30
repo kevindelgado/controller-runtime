@@ -194,6 +194,7 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 	ks.started = make(chan error)
 	go func() {
 		// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
+		fmt.Printf("ks.Type = %+v\n", ks.Type)
 		i, err := ks.cache.GetInformer(ctx, ks.Type)
 		if err != nil {
 			fmt.Printf("kind GetInformer err = %+v\n", err)
