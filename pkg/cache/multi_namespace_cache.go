@@ -82,6 +82,21 @@ func (c *multiNamespaceCache) GetInformer(ctx context.Context, obj client.Object
 	return &multiNamespaceInformer{namespaceToInformer: informers}, nil
 }
 
+// TODO
+func (c *multiNamespaceCache) GetStoppableInformer(ctx context.Context, obj client.Object) (Informer, <-chan struct{}, error) {
+	panic("not implemented")
+	//informers := map[string]Informer{}
+	//for ns, cache := range c.namespaceToCache {
+
+	//	informer, _, err := cache.GetStoppableInformer(ctx, obj)
+	//	if err != nil {
+	//		return nil, nil, err
+	//	}
+	//	informers[ns] = informer
+	//}
+	//return &multiNamespaceInformer{namespaceToInformer: informers}, nil, nil
+}
+
 func (c *multiNamespaceCache) GetInformerForKind(ctx context.Context, gvk schema.GroupVersionKind) (Informer, error) {
 	informers := map[string]Informer{}
 	for ns, cache := range c.namespaceToCache {

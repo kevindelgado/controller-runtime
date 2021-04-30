@@ -184,6 +184,7 @@ func (c *Controller) Start(ctx context.Context) error {
 	// wrap the given context in a cancellable one so that we can
 	// stop sporadic watches when their done signal fires
 	ctrlCtx, ctrlCancel := context.WithCancel(ctx)
+	defer ctrlCancel()
 
 	// Set the internal context.
 	c.ctx = ctrlCtx
