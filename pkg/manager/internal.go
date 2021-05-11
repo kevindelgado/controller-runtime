@@ -204,18 +204,18 @@ func (cm *controllerManager) Add(r Runnable) error {
 	var shouldStart bool
 
 	// Add the runnable to the leader election or the non-leaderelection list
-	// TODO: currently we treat sporadicRunnable as separate from LER/non-LER
-	// but we shouldn't right?
-	if sporadicRunnable, ok := r.(SporadicRunnable); ok {
-		fmt.Println("mgr adding sporadic")
-		cm.sporadicRunnables = append(cm.sporadicRunnables, sporadicRunnable)
-	} else if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
+	//// TODO: currently we treat sporadicRunnable as separate from LER/non-LER
+	//// but we shouldn't right?
+	//if sporadicRunnable, ok := r.(SporadicRunnable); ok {
+	//	fmt.Println("mgr adding sporadic")
+	//	cm.sporadicRunnables = append(cm.sporadicRunnables, sporadicRunnable)
+	//} else if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
+	if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
 		fmt.Println("mgr adding non ler")
 		shouldStart = cm.started
 		cm.nonLeaderElectionRunnables = append(cm.nonLeaderElectionRunnables, r)
 	} else if hasCache, ok := r.(hasCache); ok {
 		cm.caches = append(cm.caches, hasCache)
-
 	} else {
 		fmt.Println("mgr adding ler")
 		shouldStart = cm.startedLeader
@@ -498,7 +498,7 @@ func (cm *controllerManager) Start(ctx context.Context) (err error) {
 		go cm.serveHealthProbes()
 	}
 
-	go cm.startSporadicRunnables()
+	//go cm.startSporadicRunnables()
 
 	go cm.startNonLeaderElectionRunnables()
 
@@ -602,42 +602,42 @@ func (cm *controllerManager) waitForRunnableToEnd(shutdownCancel context.CancelF
 	return nil
 }
 
-// For each sporadicRunnable fire off a goroutine that
-// blocks on the runnable's Ready (or the shutdown context).
+//// For each sporadicRunnable fire off a goroutine that
+//// blocks on the runnable's Ready (or the shutdown context).
+////
+//// Once ready, call a version of start runnable that blocks
+//// until the runnable is terminated.
+////
+//// Once the runnable stops, loop back and wait for ready again.
+//func (cm *controllerManager) startSporadicRunnables() {
+//	cm.mu.Lock()
+//	cm.waitForCache(cm.internalCtx)
+//	cm.mu.Unlock()
 //
-// Once ready, call a version of start runnable that blocks
-// until the runnable is terminated.
+//	// TODO: what locking is necessary here?
+//	fmt.Printf("mgr len(cm.sporadicRunnables) = %+v\n", len(cm.sporadicRunnables))
 //
-// Once the runnable stops, loop back and wait for ready again.
-func (cm *controllerManager) startSporadicRunnables() {
-	cm.mu.Lock()
-	cm.waitForCache(cm.internalCtx)
-	cm.mu.Unlock()
-
-	// TODO: what locking is necessary here?
-	fmt.Printf("mgr len(cm.sporadicRunnables) = %+v\n", len(cm.sporadicRunnables))
-
-	for _, sr := range cm.sporadicRunnables {
-		go func(sr SporadicRunnable) {
-			fmt.Println("mgr got an sr")
-			for {
-				fmt.Println("mgr waiting on sr ReadyToStart")
-				select {
-				case <-cm.internalCtx.Done():
-					fmt.Println("mgr internal context fired")
-					return
-				case <-sr.Ready(cm.internalCtx):
-					fmt.Println("mgr ready, starting the runnable")
-					// this doesn't block
-					cm.startBlockingRunnable(sr)
-					fmt.Println("mgr runnable done running")
-					return
-				}
-				fmt.Println("mgr done running, looping back to wait on ready")
-			}
-		}(sr)
-	}
-}
+//	for _, sr := range cm.sporadicRunnables {
+//		go func(sr SporadicRunnable) {
+//			fmt.Println("mgr got an sr")
+//			for {
+//				fmt.Println("mgr waiting on sr ReadyToStart")
+//				select {
+//				case <-cm.internalCtx.Done():
+//					fmt.Println("mgr internal context fired")
+//					return
+//				case <-sr.Ready(cm.internalCtx):
+//					fmt.Println("mgr ready, starting the runnable")
+//					// this doesn't block
+//					cm.startBlockingRunnable(sr)
+//					fmt.Println("mgr runnable done running")
+//					return
+//				}
+//				fmt.Println("mgr done running, looping back to wait on ready")
+//			}
+//		}(sr)
+//	}
+//}
 
 func (cm *controllerManager) startNonLeaderElectionRunnables() {
 	cm.mu.Lock()
@@ -741,23 +741,61 @@ func (cm *controllerManager) Elected() <-chan struct{} {
 }
 
 func (cm *controllerManager) startRunnable(r Runnable) {
-	cm.waitForRunnable.Add(1)
+	if sporadicRunnable, ok := r.(SporadicRunnable); ok {
+		fmt.Printf("starting sporadic runnable = %+v\n", sporadicRunnable)
+		cm.startSporadicRunnable(sporadicRunnable)
+	} else {
+		cm.waitForRunnable.Add(1)
+		go func() {
+			fmt.Printf("starting non-sporadic runnable, %v\n", r)
+			defer cm.waitForRunnable.Done()
+			if err := r.Start(cm.internalCtx); err != nil {
+				cm.errChan <- err
+			}
+		}()
+	}
+}
+
+// startSporadicRunnable fires off a goroutine that
+// blocks on the runnable's Ready (or the shutdown context).
+//
+// Once ready, call a version of start runnable that blocks
+// until the runnable is terminated.
+//
+// Once the runnable stops, loop back and wait for ready again.
+func (cm *controllerManager) startSporadicRunnable(sr SporadicRunnable) {
 	go func() {
-		fmt.Printf("starting runnable, %v", r)
-		defer cm.waitForRunnable.Done()
-		if err := r.Start(cm.internalCtx); err != nil {
-			cm.errChan <- err
+		fmt.Println("mgr got an sr")
+		for {
+			fmt.Println("mgr waiting on sr ReadyToStart")
+			select {
+			case <-cm.internalCtx.Done():
+				fmt.Println("mgr internal context fired")
+				return
+			case <-sr.Ready(cm.internalCtx):
+				fmt.Println("mgr ready, starting the runnable")
+				// this doesn't block
+				cm.waitForRunnable.Add(1)
+				defer cm.waitForRunnable.Done()
+				fmt.Printf("starting sporadic runnable, %v\n", sr)
+				if err := sr.Start(cm.internalCtx); err != nil {
+					cm.errChan <- err
+				}
+				fmt.Println("mgr runnable done running")
+				return
+			}
+			fmt.Println("mgr done running, looping back to wait on ready")
 		}
 	}()
 }
 
-// like startRunnable, but blocking
-// TODO: is there a better way to do this?
-func (cm *controllerManager) startBlockingRunnable(r Runnable) {
-	cm.waitForRunnable.Add(1)
-	defer cm.waitForRunnable.Done()
-	fmt.Printf("starting sporadic runnable, %v\n", r)
-	if err := r.Start(cm.internalCtx); err != nil {
-		cm.errChan <- err
-	}
-}
+//// like startRunnable, but blocking
+//// TODO: is there a better way to do this?
+//func (cm *controllerManager) startBlockingRunnable(r Runnable) {
+//	cm.waitForRunnable.Add(1)
+//	defer cm.waitForRunnable.Done()
+//	fmt.Printf("starting sporadic runnable, %v\n", r)
+//	if err := r.Start(cm.internalCtx); err != nil {
+//		cm.errChan <- err
+//	}
+//}
