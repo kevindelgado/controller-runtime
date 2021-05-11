@@ -71,6 +71,10 @@ type MapEntry struct {
 
 	// CacheReader wraps Informer and implements the CacheReader interface for a single type
 	Reader CacheReader
+
+	// informerDone is a channel that is closed after
+	// the informer stops
+	StopCh <-chan struct{}
 }
 
 // specificInformersMap create and caches Informers for (runtime.Object, schema.GroupVersionKind) pairs.
@@ -166,7 +170,8 @@ func (ip *specificInformersMap) HasSyncedFuncs() []cache.InformerSynced {
 
 // Get will create a new Informer and add it to the map of specificInformersMap if none exists.  Returns
 // the Informer from the map.
-func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object) (bool, *MapEntry, error) {
+func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object, stopOnError bool) (bool, *MapEntry, error) {
+	fmt.Println("inf Get")
 	// Return the informer if it is found
 	i, started, ok := func() (*MapEntry, bool, bool) {
 		ip.mu.RLock()
@@ -177,7 +182,7 @@ func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersion
 
 	if !ok {
 		var err error
-		if i, started, err = ip.addInformerToMap(gvk, obj); err != nil {
+		if i, started, err = ip.addInformerToMap(gvk, obj, stopOnError); err != nil {
 			return started, nil, err
 		}
 	}
@@ -192,7 +197,8 @@ func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersion
 	return started, i, nil
 }
 
-func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, obj runtime.Object) (*MapEntry, bool, error) {
+func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, obj runtime.Object, stopOnError bool) (*MapEntry, bool, error) {
+	fmt.Println("inf addInf")
 	ip.mu.Lock()
 	defer ip.mu.Unlock()
 
@@ -203,10 +209,13 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 		return i, ip.started, nil
 	}
 
+	fmt.Println("inf createLW")
+	fmt.Printf("inf gvk = %+v\n", gvk)
 	// Create a NewSharedIndexInformer and add it to the map.
 	var lw *cache.ListWatch
 	lw, err := ip.createListWatcher(gvk, ip)
 	if err != nil {
+		fmt.Printf("inf createLW err = %+v\n", err)
 		return nil, false, err
 	}
 	ni := cache.NewSharedIndexInformer(lw, obj, resyncPeriod(ip.resync)(), cache.Indexers{
@@ -214,20 +223,57 @@ func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, ob
 	})
 	rm, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
+		fmt.Printf("RESTMapping err = %+v\n", err)
+		fmt.Printf("gvk = %+v\n", gvk)
 		return nil, false, err
 	}
+	fmt.Println("inf RM success")
+	informerStop := make(chan struct{})
 	i := &MapEntry{
 		Informer: ni,
 		Reader:   CacheReader{indexer: ni.GetIndexer(), groupVersionKind: gvk, scopeName: rm.Scope.Name()},
+		StopCh:   informerStop,
 	}
 	ip.informersByGVK[gvk] = i
+
+	go func() {
+		<-ip.stop
+		close(informerStop)
+	}()
+
+	i.Informer.SetWatchErrorHandler(func(r *cache.Reflector, err error) {
+		ip.mu.RLock()
+		defer ip.mu.RUnlock()
+		fmt.Printf("inf handler err = %+v\n", err)
+		// TODO: check the error for not found
+		if stopOnError {
+			fmt.Println("inf stopping")
+			close(informerStop)
+		}
+
+	})
 
 	// Start the Informer if need by
 	// TODO(seans): write thorough tests and document what happens here - can you add indexers?
 	// can you add eventhandlers?
+
+	// TODO: not cancelling? (leak)
+	//runCtx, cancel := context.WithCancel(ctx)
+	//go func() {
+	//	<-ip.stop
+	//	fmt.Println("inf ip stopped")
+	//	cancel()
+	//}()
 	if ip.started {
-		go i.Informer.Run(ip.stop)
+		fmt.Println("inf Run")
+		//go i.Informer.Run(informerStop)
+		go func() {
+			i.Informer.Run(informerStop)
+			fmt.Println("informer done running, remove from map")
+			delete(ip.informersByGVK, gvk)
+		}()
 	}
+	fmt.Println("inf addInformer returning")
 	return i, ip.started, nil
 }
 

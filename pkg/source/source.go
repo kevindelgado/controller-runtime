@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/util/workqueue"
@@ -55,6 +56,12 @@ type Source interface {
 	// Start is internal and should be called only by the Controller to register an EventHandler with the Informer
 	// to enqueue reconcile.Requests.
 	Start(context.Context, handler.EventHandler, workqueue.RateLimitingInterface, ...predicate.Predicate) error
+}
+
+type SporadicSource interface {
+	Source
+	StartNotifyDone(context.Context, handler.EventHandler, workqueue.RateLimitingInterface, ...predicate.Predicate) (<-chan struct{}, error)
+	Ready(ctx context.Context, wg *sync.WaitGroup)
 }
 
 // SyncingSource is a source that needs syncing prior to being usable. The controller
@@ -98,31 +105,71 @@ type Kind struct {
 	startCancel func()
 }
 
+type SporadicKind struct {
+	Kind
+	DiscoveryCheck func() bool
+}
+
+func (sk *SporadicKind) Ready(ctx context.Context, wg *sync.WaitGroup) {
+	fmt.Println("src ready called")
+	defer wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("src context shutdown")
+			return
+		default:
+			if sk.DiscoveryCheck() {
+				fmt.Println("src ready discovery check pass closing ready")
+				return
+			}
+			//TODO: parameterize this
+			fmt.Println("src ready discovery check fail, spin")
+			time.Sleep(5 * time.Second)
+		}
+	}
+}
+
+// StartNotifyDone starts the kind while concurrently polling discovery to confirm the CRD is still installed
+// It returns a signal that fires when the CRD is uninstalled, which also triggers a cacnel of the underlying informer
+func (sk *SporadicKind) StartNotifyDone(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface, prct ...predicate.Predicate) (<-chan struct{}, error) {
+	return sk.Kind.StartNotifyDone(ctx, handler, queue, prct...)
+}
+
+func (sk *SporadicKind) Start(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface, prct ...predicate.Predicate) error {
+	return sk.Kind.Start(ctx, handler, queue, prct...)
+}
+
 var _ SyncingSource = &Kind{}
 
 // Start is internal and should be called only by the Controller to register an EventHandler with the Informer
 // to enqueue reconcile.Requests.
-func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface,
-	prct ...predicate.Predicate) error {
+func (ks *Kind) StartNotifyDone(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface,
+	prct ...predicate.Predicate) (<-chan struct{}, error) {
 
 	// Type should have been specified by the user.
 	if ks.Type == nil {
-		return fmt.Errorf("must specify Kind.Type")
+		return nil, fmt.Errorf("must specify Kind.Type")
 	}
 
 	// cache should have been injected before Start was called
 	if ks.cache == nil {
-		return fmt.Errorf("must call CacheInto on Kind before calling Start")
+		return nil, fmt.Errorf("must call CacheInto on Kind before calling Start")
 	}
 
 	// cache.GetInformer will block until its context is cancelled if the cache was already started and it can not
 	// sync that informer (most commonly due to RBAC issues).
 	ctx, ks.startCancel = context.WithCancel(ctx)
 	ks.started = make(chan error)
+	var stopCh <-chan struct{}
 	go func() {
 		// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
-		i, err := ks.cache.GetInformer(ctx, ks.Type)
+		fmt.Printf("ks.Type = %+v\n", ks.Type)
+		var err error
+		var i cache.Informer
+		i, stopCh, err = ks.cache.GetStoppableInformer(ctx, ks.Type)
 		if err != nil {
+			fmt.Printf("kind GetInformer err = %+v\n", err)
 			kindMatchErr := &meta.NoKindMatchError{}
 			if errors.As(err, &kindMatchErr) {
 				log.Error(err, "if kind is a CRD, it should be installed before calling Start",
@@ -136,10 +183,19 @@ func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue w
 			// Would be great to return something more informative here
 			ks.started <- errors.New("cache did not sync")
 		}
+		fmt.Println("kind closing ks.started")
 		close(ks.started)
 	}()
 
-	return nil
+	return stopCh, nil
+}
+
+// Start is internal and should be called only by the Controller to register an EventHandler with the Informer
+// to enqueue reconcile.Requests.
+func (ks *Kind) Start(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface,
+	prct ...predicate.Predicate) error {
+	_, err := ks.StartNotifyDone(ctx, handler, queue, prct...)
+	return err
 }
 
 func (ks *Kind) String() string {

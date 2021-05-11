@@ -79,6 +79,15 @@ func (c *FakeInformers) GetInformer(ctx context.Context, obj client.Object) (cac
 	return c.informerFor(gvk, obj)
 }
 
+// GetStoppableInformer implements informers
+func (c *FakeInformers) GetStoppableInformer(ctx context.Context, obj client.Object) (cache.Informer, <-chan struct{}, error) {
+	// TODO:
+	//panic("not implemented")
+	i, e := c.GetInformer(ctx, obj)
+	return i, nil, e
+
+}
+
 // WaitForCacheSync implements Informers
 func (c *FakeInformers) WaitForCacheSync(ctx context.Context) bool {
 	if c.Synced == nil {

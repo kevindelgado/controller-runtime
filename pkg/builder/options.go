@@ -99,6 +99,12 @@ func (p projectAs) ApplyToWatches(opts *WatchesInput) {
 	opts.objectProjection = objectProjection(p)
 }
 
+type Sporadic struct{}
+
+func (s Sporadic) ApplyToFor(opts *ForInput) {
+	opts.sporadic = true
+}
+
 var (
 	// OnlyMetadata tells the controller to *only* cache metadata, and to watch
 	// the the API server in metadata-only form.  This is useful when watching

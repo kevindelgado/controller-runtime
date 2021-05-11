@@ -71,6 +71,8 @@ type controllerManager struct {
 	// These Runnables will not be blocked by lead election.
 	nonLeaderElectionRunnables []Runnable
 
+	sporadicRunnables []SporadicRunnable
+
 	// recorderProvider is used to generate event recorders that will be injected into Controllers
 	// (and EventHandlers, Sources and Predicates).
 	recorderProvider *intrec.Provider
@@ -202,12 +204,20 @@ func (cm *controllerManager) Add(r Runnable) error {
 	var shouldStart bool
 
 	// Add the runnable to the leader election or the non-leaderelection list
+	//// TODO: currently we treat sporadicRunnable as separate from LER/non-LER
+	//// but we shouldn't right?
+	//if sporadicRunnable, ok := r.(SporadicRunnable); ok {
+	//	fmt.Println("mgr adding sporadic")
+	//	cm.sporadicRunnables = append(cm.sporadicRunnables, sporadicRunnable)
+	//} else if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
 	if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
+		fmt.Println("mgr adding non ler")
 		shouldStart = cm.started
 		cm.nonLeaderElectionRunnables = append(cm.nonLeaderElectionRunnables, r)
 	} else if hasCache, ok := r.(hasCache); ok {
 		cm.caches = append(cm.caches, hasCache)
 	} else {
+		fmt.Println("mgr adding ler")
 		shouldStart = cm.startedLeader
 		cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
 	}
@@ -427,6 +437,7 @@ func (cm *controllerManager) serveHealthProbes() {
 
 		// Run server
 		cm.startRunnable(RunnableFunc(func(_ context.Context) error {
+			cm.logger.Info("starting health probes")
 			if err := server.Serve(cm.healthProbeListener); err != nil && err != http.ErrServerClosed {
 				return err
 			}
@@ -443,6 +454,7 @@ func (cm *controllerManager) serveHealthProbes() {
 }
 
 func (cm *controllerManager) Start(ctx context.Context) (err error) {
+	fmt.Println("mgr Start")
 	if err := cm.Add(cm.cluster); err != nil {
 		return fmt.Errorf("failed to add cluster to runnables: %w", err)
 	}
@@ -486,6 +498,8 @@ func (cm *controllerManager) Start(ctx context.Context) (err error) {
 		go cm.serveHealthProbes()
 	}
 
+	//go cm.startSporadicRunnables()
+
 	go cm.startNonLeaderElectionRunnables()
 
 	go func() {
@@ -501,14 +515,19 @@ func (cm *controllerManager) Start(ctx context.Context) (err error) {
 		}
 	}()
 
+	fmt.Println("mgr start waiting on signal")
 	select {
 	case <-ctx.Done():
+		fmt.Println("mgr start ctx.Done fired")
 		// We are done
 		return nil
 	case err := <-cm.errChan:
+		fmt.Printf("mgr start errChan fired, %v\n", err)
 		// Error starting or running a runnable
 		return err
 	}
+	fmt.Println("mgr start finished")
+	return nil
 }
 
 // engageStopProcedure signals all runnables to stop, reads potential errors
@@ -583,6 +602,43 @@ func (cm *controllerManager) waitForRunnableToEnd(shutdownCancel context.CancelF
 	return nil
 }
 
+//// For each sporadicRunnable fire off a goroutine that
+//// blocks on the runnable's Ready (or the shutdown context).
+////
+//// Once ready, call a version of start runnable that blocks
+//// until the runnable is terminated.
+////
+//// Once the runnable stops, loop back and wait for ready again.
+//func (cm *controllerManager) startSporadicRunnables() {
+//	cm.mu.Lock()
+//	cm.waitForCache(cm.internalCtx)
+//	cm.mu.Unlock()
+//
+//	// TODO: what locking is necessary here?
+//	fmt.Printf("mgr len(cm.sporadicRunnables) = %+v\n", len(cm.sporadicRunnables))
+//
+//	for _, sr := range cm.sporadicRunnables {
+//		go func(sr SporadicRunnable) {
+//			fmt.Println("mgr got an sr")
+//			for {
+//				fmt.Println("mgr waiting on sr ReadyToStart")
+//				select {
+//				case <-cm.internalCtx.Done():
+//					fmt.Println("mgr internal context fired")
+//					return
+//				case <-sr.Ready(cm.internalCtx):
+//					fmt.Println("mgr ready, starting the runnable")
+//					// this doesn't block
+//					cm.startBlockingRunnable(sr)
+//					fmt.Println("mgr runnable done running")
+//					return
+//				}
+//				fmt.Println("mgr done running, looping back to wait on ready")
+//			}
+//		}(sr)
+//	}
+//}
+
 func (cm *controllerManager) startNonLeaderElectionRunnables() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -591,6 +647,7 @@ func (cm *controllerManager) startNonLeaderElectionRunnables() {
 
 	// Start the non-leaderelection Runnables after the cache has synced
 	for _, c := range cm.nonLeaderElectionRunnables {
+		fmt.Println("nonLER")
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
 		cm.startRunnable(c)
@@ -605,6 +662,7 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 
 	// Start the leader election Runnables after the cache has synced
 	for _, c := range cm.leaderElectionRunnables {
+		fmt.Println("LER")
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
 		cm.startRunnable(c)
@@ -683,11 +741,61 @@ func (cm *controllerManager) Elected() <-chan struct{} {
 }
 
 func (cm *controllerManager) startRunnable(r Runnable) {
-	cm.waitForRunnable.Add(1)
+	if sporadicRunnable, ok := r.(SporadicRunnable); ok {
+		fmt.Printf("starting sporadic runnable = %+v\n", sporadicRunnable)
+		cm.startSporadicRunnable(sporadicRunnable)
+	} else {
+		cm.waitForRunnable.Add(1)
+		go func() {
+			fmt.Printf("starting non-sporadic runnable, %v\n", r)
+			defer cm.waitForRunnable.Done()
+			if err := r.Start(cm.internalCtx); err != nil {
+				cm.errChan <- err
+			}
+		}()
+	}
+}
+
+// startSporadicRunnable fires off a goroutine that
+// blocks on the runnable's Ready (or the shutdown context).
+//
+// Once ready, call a version of start runnable that blocks
+// until the runnable is terminated.
+//
+// Once the runnable stops, loop back and wait for ready again.
+func (cm *controllerManager) startSporadicRunnable(sr SporadicRunnable) {
 	go func() {
-		defer cm.waitForRunnable.Done()
-		if err := r.Start(cm.internalCtx); err != nil {
-			cm.errChan <- err
+		fmt.Println("mgr got an sr")
+		for {
+			fmt.Println("mgr waiting on sr ReadyToStart")
+			select {
+			case <-cm.internalCtx.Done():
+				fmt.Println("mgr internal context fired")
+				return
+			case <-sr.Ready(cm.internalCtx):
+				fmt.Println("mgr ready, starting the runnable")
+				// this doesn't block
+				cm.waitForRunnable.Add(1)
+				defer cm.waitForRunnable.Done()
+				fmt.Printf("starting sporadic runnable, %v\n", sr)
+				if err := sr.Start(cm.internalCtx); err != nil {
+					cm.errChan <- err
+				}
+				fmt.Println("mgr runnable done running")
+				return
+			}
+			fmt.Println("mgr done running, looping back to wait on ready")
 		}
 	}()
 }
+
+//// like startRunnable, but blocking
+//// TODO: is there a better way to do this?
+//func (cm *controllerManager) startBlockingRunnable(r Runnable) {
+//	cm.waitForRunnable.Add(1)
+//	defer cm.waitForRunnable.Done()
+//	fmt.Printf("starting sporadic runnable, %v\n", r)
+//	if err := r.Start(cm.internalCtx); err != nil {
+//		cm.errChan <- err
+//	}
+//}
