@@ -631,6 +631,7 @@ func (cm *controllerManager) startSporadicRunnables() {
 					// this doesn't block
 					cm.startBlockingRunnable(sr)
 					fmt.Println("mgr runnable done running")
+					return
 				}
 				fmt.Println("mgr done running, looping back to wait on ready")
 			}

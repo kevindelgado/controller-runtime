@@ -61,7 +61,7 @@ type Source interface {
 type SporadicSource interface {
 	Source
 	StartNotifyDone(context.Context, handler.EventHandler, workqueue.RateLimitingInterface, ...predicate.Predicate) (<-chan struct{}, error)
-	Ready(ctx context.Context, wg *sync.WaitGroup) <-chan struct{}
+	Ready(ctx context.Context, wg *sync.WaitGroup)
 }
 
 // SyncingSource is a source that needs syncing prior to being usable. The controller
@@ -110,31 +110,24 @@ type SporadicKind struct {
 	DiscoveryCheck func() bool
 }
 
-func (sk *SporadicKind) Ready(ctx context.Context, wg *sync.WaitGroup) <-chan struct{} {
+func (sk *SporadicKind) Ready(ctx context.Context, wg *sync.WaitGroup) {
 	fmt.Println("src ready called")
-	ready := make(chan struct{})
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-ctx.Done():
-				fmt.Println("src context shutdown")
-				close(ready)
+	defer wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("src context shutdown")
+			return
+		default:
+			if sk.DiscoveryCheck() {
+				fmt.Println("src ready discovery check pass closing ready")
 				return
-			default:
-				if sk.DiscoveryCheck() {
-					fmt.Println("src ready discovery check pass closing ready")
-					close(ready)
-					return
-				}
-				//TODO: parameterize this
-				fmt.Println("src ready discovery check fail, spin")
-				time.Sleep(5 * time.Second)
 			}
+			//TODO: parameterize this
+			fmt.Println("src ready discovery check fail, spin")
+			time.Sleep(5 * time.Second)
 		}
-	}()
-
-	return ready
+	}
 }
 
 // StartNotifyDone starts the kind while concurrently polling discovery to confirm the CRD is still installed
