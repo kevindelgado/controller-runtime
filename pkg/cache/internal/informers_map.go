@@ -72,7 +72,7 @@ type MapEntry struct {
 	// CacheReader wraps Informer and implements the CacheReader interface for a single type
 	Reader CacheReader
 
-	// informerDone is a channel that is closed after
+	// StopCh is a channel that is closed after
 	// the informer stops
 	StopCh <-chan struct{}
 }

@@ -73,7 +73,7 @@ type ForInput struct {
 	predicates       []predicate.Predicate
 	objectProjection objectProjection
 	err              error
-	sporadic         bool
+	conditional      bool
 }
 
 // For defines the type of Object being *reconciled*, and configures the ControllerManagedBy to respond to create / delete /
@@ -99,7 +99,7 @@ type OwnsInput struct {
 	object           client.Object
 	predicates       []predicate.Predicate
 	objectProjection objectProjection
-	sporadic         bool
+	conditional      bool
 }
 
 // Owns defines types of Objects being *generated* by the ControllerManagedBy, and configures the ControllerManagedBy to respond to
@@ -121,7 +121,7 @@ type WatchesInput struct {
 	eventhandler     handler.EventHandler
 	predicates       []predicate.Predicate
 	objectProjection objectProjection
-	sporadic         bool
+	conditional      bool
 }
 
 // Watches exposes the lower-level ControllerManagedBy Watches functions through the builder.  Consider using
@@ -227,8 +227,8 @@ func (blder *Builder) doWatch() error {
 		return err
 	}
 	var src source.Source
-	fmt.Printf("blder.forInput.sporadic = %+v\n", blder.forInput.sporadic)
-	if blder.forInput.sporadic {
+	fmt.Printf("blder.forInput.conditional = %+v\n", blder.forInput.conditional)
+	if blder.forInput.conditional {
 		gvk, err := getGvk(blder.forInput.object, blder.mgr.GetScheme())
 		if err != nil {
 			return err
@@ -253,7 +253,7 @@ func (blder *Builder) doWatch() error {
 			fmt.Printf("NOT in discovery kind = %+v\n", gvk)
 			return false
 		}
-		src = &source.SporadicKind{Kind: source.Kind{Type: typeForSrc}, DiscoveryCheck: existsInDiscovery}
+		src = &source.ConditionalKind{Kind: source.Kind{Type: typeForSrc}, DiscoveryCheck: existsInDiscovery}
 	} else {
 		src = &source.Kind{Type: typeForSrc}
 	}
@@ -270,7 +270,7 @@ func (blder *Builder) doWatch() error {
 			return err
 		}
 		src := &source.Kind{Type: typeForSrc}
-		// TODO: handle sporadic watches for owns types too
+		// TODO: handle conditional watches for owns types too
 		hdler := &handler.EnqueueRequestForOwner{
 			OwnerType:    blder.forInput.object,
 			IsController: true,
@@ -287,7 +287,7 @@ func (blder *Builder) doWatch() error {
 		allPredicates := append([]predicate.Predicate(nil), blder.globalPredicates...)
 		allPredicates = append(allPredicates, w.predicates...)
 
-		// TODO: handle sporadic watches for owns types too
+		// TODO: handle conditional watches for owns types too
 
 		// If the source of this watch is of type *source.Kind, project it.
 		if srckind, ok := w.src.(*source.Kind); ok {

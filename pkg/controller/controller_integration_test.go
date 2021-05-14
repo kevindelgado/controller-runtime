@@ -211,7 +211,7 @@ var _ = Describe("controller", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		By("Watching foo CRD as sporadic kinds")
+		By("Watching foo CRD as conditional kinds")
 		f := &foo.Foo{}
 		gvk := schema.GroupVersionKind{
 			Group:   "bar.example.com",
@@ -231,7 +231,7 @@ var _ = Describe("controller", func() {
 			}
 			return false
 		}
-		err = instance.Watch(&source.SporadicKind{Kind: source.Kind{Type: f}, DiscoveryCheck: existsInDiscovery}, &handler.EnqueueRequestForObject{})
+		err = instance.Watch(&source.ConditionalKind{Kind: source.Kind{Type: f}, DiscoveryCheck: existsInDiscovery}, &handler.EnqueueRequestForObject{})
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Starting the Manager")

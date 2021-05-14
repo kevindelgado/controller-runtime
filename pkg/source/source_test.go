@@ -37,7 +37,7 @@ import (
 )
 
 var _ = Describe("Source", func() {
-	Describe("SporadicKind", func() {
+	Describe("ConditionalKind", func() {
 		// TODO: mock out discovery checks that both pass and fail
 		// test Ready with pass/fail DCs
 		// test StartNotifyDone with pass/fail DCs
@@ -64,7 +64,7 @@ var _ = Describe("Source", func() {
 				yesInDiscovery := func() bool { return true }
 				//notInDiscovery := func() bool { return false }
 				kind := source.Kind{Type: &corev1.Pod{}}
-				instance := source.SporadicKind{Kind: kind, DiscoveryCheck: yesInDiscovery}
+				instance := source.ConditionalKind{Kind: kind, DiscoveryCheck: yesInDiscovery}
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				ready := make(chan struct{})
@@ -87,7 +87,7 @@ var _ = Describe("Source", func() {
 			//	//yesInDiscovery := func() bool { return true }
 			//	notInDiscovery := func() bool { return false }
 			//	kind := source.Kind{Type: &corev1.Pod{}}
-			//	instance := source.SporadicKind{Kind: kind, DiscoveryCheck: notInDiscovery}
+			//	instance := source.ConditionalKind{Kind: kind, DiscoveryCheck: notInDiscovery}
 			//	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			//	defer cancel()
 			//	ready := make(chan struct{})

@@ -99,10 +99,10 @@ func (p projectAs) ApplyToWatches(opts *WatchesInput) {
 	opts.objectProjection = objectProjection(p)
 }
 
-type Sporadic struct{}
+type Conditional struct{}
 
-func (s Sporadic) ApplyToFor(opts *ForInput) {
-	opts.sporadic = true
+func (s Conditional) ApplyToFor(opts *ForInput) {
+	opts.conditional = true
 }
 
 var (

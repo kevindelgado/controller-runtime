@@ -694,13 +694,13 @@ func (cm *controllerManager) Elected() <-chan struct{} {
 }
 
 func (cm *controllerManager) startRunnable(r Runnable) {
-	if sporadicRunnable, ok := r.(SporadicRunnable); ok {
-		fmt.Printf("starting sporadic runnable = %+v\n", sporadicRunnable)
-		cm.startSporadicRunnable(sporadicRunnable)
+	if conditionalRunnable, ok := r.(ConditionalRunnable); ok {
+		fmt.Printf("starting conditional runnable = %+v\n", conditionalRunnable)
+		cm.startConditionalRunnable(conditionalRunnable)
 	} else {
 		cm.waitForRunnable.Add(1)
 		go func() {
-			fmt.Printf("starting non-sporadic runnable, %v\n", r)
+			fmt.Printf("starting non-conditional runnable, %v\n", r)
 			defer cm.waitForRunnable.Done()
 			if err := r.Start(cm.internalCtx); err != nil {
 				cm.errChan <- err
@@ -709,32 +709,33 @@ func (cm *controllerManager) startRunnable(r Runnable) {
 	}
 }
 
-// startSporadicRunnable fires off a goroutine that
+// startConditionalRunnable fires off a goroutine that
 // blocks on the runnable's Ready (or the shutdown context).
 //
 // Once ready, call a version of start runnable that blocks
 // until the runnable is terminated.
 //
 // Once the runnable stops, loop back and wait for ready again.
-func (cm *controllerManager) startSporadicRunnable(sr SporadicRunnable) {
+func (cm *controllerManager) startConditionalRunnable(cr ConditionalRunnable) {
 	go func() {
-		fmt.Println("mgr got an sr")
+		fmt.Println("mgr got an cr")
 		for {
-			fmt.Println("mgr waiting on sr ReadyToStart")
+			fmt.Println("mgr waiting on cr ReadyToStart")
 			select {
 			case <-cm.internalCtx.Done():
 				fmt.Println("mgr internal context fired")
 				return
-			case <-sr.Ready(cm.internalCtx):
+			case <-cr.Ready(cm.internalCtx):
 				fmt.Println("mgr ready, starting the runnable")
 				// this doesn't block
 				cm.waitForRunnable.Add(1)
 				defer cm.waitForRunnable.Done()
-				fmt.Printf("starting sporadic runnable, %v\n", sr)
-				if err := sr.Start(cm.internalCtx); err != nil {
+				fmt.Printf("starting conditional runnable, %v\n", cr)
+				if err := cr.Start(cm.internalCtx); err != nil {
 					cm.errChan <- err
 				}
 				fmt.Println("mgr runnable done running")
+				// TODO: what happens if we don't return here?
 				return
 			}
 			fmt.Println("mgr done running, looping back to wait on ready")

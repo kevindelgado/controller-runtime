@@ -58,9 +58,18 @@ type Source interface {
 	Start(context.Context, handler.EventHandler, workqueue.RateLimitingInterface, ...predicate.Predicate) error
 }
 
-type SporadicSource interface {
+// ConditionalSource is a Source of events that additionally offer the ability to see when the Source is ready to be
+// started as well as offering a wrapper around the Source's Start method that returns a channel the fires when an
+// already started Source has stopped.
+type ConditionalSource interface {
 	Source
+
+	// StartNotifyDone runs the underlying Source's Start method and provides a channel that fires when
+	// the Source has stopped.
 	StartNotifyDone(context.Context, handler.EventHandler, workqueue.RateLimitingInterface, ...predicate.Predicate) (<-chan struct{}, error)
+
+	// Ready blocks until it is safe to call StartNotifyDone, meaning the Source's Kind's type has been
+	// successfully installed on the cluster  and is ready to have its events watched and handled.
 	Ready(ctx context.Context, wg *sync.WaitGroup)
 }
 
@@ -105,12 +114,17 @@ type Kind struct {
 	startCancel func()
 }
 
-type SporadicKind struct {
+// ConditionalKind implements ConditionalSource allowing you to set a
+// DiscoveryCheck function that is used to determine whene a stopped kind
+// has been reinstalled on the cluster and is ready to be restarted.
+type ConditionalKind struct {
 	Kind
+
+	// DiscoveryCheck returns true if the Kind's Type exists on the cluster and false otherwise.
 	DiscoveryCheck func() bool
 }
 
-func (sk *SporadicKind) Ready(ctx context.Context, wg *sync.WaitGroup) {
+func (sk *ConditionalKind) Ready(ctx context.Context, wg *sync.WaitGroup) {
 	fmt.Println("src ready called")
 	defer wg.Done()
 	for {
@@ -132,11 +146,11 @@ func (sk *SporadicKind) Ready(ctx context.Context, wg *sync.WaitGroup) {
 
 // StartNotifyDone starts the kind while concurrently polling discovery to confirm the CRD is still installed
 // It returns a signal that fires when the CRD is uninstalled, which also triggers a cacnel of the underlying informer
-func (sk *SporadicKind) StartNotifyDone(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface, prct ...predicate.Predicate) (<-chan struct{}, error) {
+func (sk *ConditionalKind) StartNotifyDone(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface, prct ...predicate.Predicate) (<-chan struct{}, error) {
 	return sk.Kind.StartNotifyDone(ctx, handler, queue, prct...)
 }
 
-func (sk *SporadicKind) Start(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface, prct ...predicate.Predicate) error {
+func (sk *ConditionalKind) Start(ctx context.Context, handler handler.EventHandler, queue workqueue.RateLimitingInterface, prct ...predicate.Predicate) error {
 	return sk.Kind.Start(ctx, handler, queue, prct...)
 }
 

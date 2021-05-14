@@ -81,8 +81,10 @@ type Controller struct {
 	CacheSyncTimeout time.Duration
 
 	// startWatches maintains a list of sources, handlers, and predicates to start when the controller is started.
-	startWatches    []watchDescription
-	sporadicWatches []sporadicWatchDescription
+	startWatches []watchDescription
+
+	// conditionalWatches maintains a list of conditional sources that provide information on when the source is ready to be started/restarted and when the source has stopped.
+	conditionalWatches []conditionalWatchDescription
 
 	// Log is used to log messages to users during reconciliation, or for example when a watch is started.
 	Log logr.Logger
@@ -95,8 +97,8 @@ type watchDescription struct {
 	predicates []predicate.Predicate
 }
 
-type sporadicWatchDescription struct {
-	src        source.SporadicSource
+type conditionalWatchDescription struct {
+	src        source.ConditionalSource
 	handler    handler.EventHandler
 	predicates []predicate.Predicate
 }
@@ -127,8 +129,8 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 	}
 
 	// These get held on indefinitely
-	if sporadicSource, ok := src.(source.SporadicSource); ok && !c.Started {
-		c.sporadicWatches = append(c.sporadicWatches, sporadicWatchDescription{src: sporadicSource, handler: evthdler, predicates: prct})
+	if conditionalSource, ok := src.(source.ConditionalSource); ok && !c.Started {
+		c.conditionalWatches = append(c.conditionalWatches, conditionalWatchDescription{src: conditionalSource, handler: evthdler, predicates: prct})
 		return nil
 	}
 
@@ -144,28 +146,26 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 	return src.Start(c.ctx, evthdler, c.Queue, prct...)
 }
 
-// Rea
+// Ready is called by the controller manager to determine when all the conditionalWatches
+// can be started. It blocks until ready.
 func (c *Controller) Ready(ctx context.Context) <-chan struct{} {
-	fmt.Printf("ctrl ReadyToStart len(c.sporadicWatches) = %+v\n", len(c.sporadicWatches))
+	fmt.Printf("ctrl ReadyToStart len(c.conditionalWatches) = %+v\n", len(c.conditionalWatches))
 	ready := make(chan struct{})
-	if len(c.sporadicWatches) == 0 {
+	if len(c.conditionalWatches) == 0 {
 		close(ready)
 		return ready
 	}
 
 	var wg sync.WaitGroup
-	for _, w := range c.sporadicWatches {
+	for _, w := range c.conditionalWatches {
 		wg.Add(1)
 		fmt.Println("ctrl checking src ready")
 		go w.src.Ready(ctx, &wg)
 	}
 
 	go func() {
-		fmt.Println("ctrl ready wg wait starting")
+		defer close(ready)
 		wg.Wait()
-		fmt.Println("ctrl ready wg wait done closing ready")
-		close(ready)
-		fmt.Println("ctrl all sources ready")
 	}()
 	return ready
 }
@@ -182,7 +182,7 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.initMetrics()
 
 	// wrap the given context in a cancellable one so that we can
-	// stop sporadic watches when their done signal fires
+	// stop conditional watches when their done signal fires
 	ctrlCtx, ctrlCancel := context.WithCancel(ctx)
 	defer ctrlCancel()
 
@@ -213,13 +213,13 @@ func (c *Controller) Start(ctx context.Context) error {
 			}
 		}
 
-		c.Log.Info("sporadic watches", "len", len(c.sporadicWatches))
+		c.Log.Info("conditional watches", "len", len(c.conditionalWatches))
 		// TODO: do we need a waitgroup here so that we only clear c.Started once all the watches are done
 		// or should a single done watch trigger all the others to stop, or something else?
-		for _, watch := range c.sporadicWatches {
-			c.Log.Info("sporadic Starting EventSource", "source", watch.src)
+		for _, watch := range c.conditionalWatches {
+			c.Log.Info("conditional Starting EventSource", "source", watch.src)
 
-			// Call a version of the Start method specific to SporadicSource that returns
+			// call a version of the Start method specific to ConditionalSource that returns
 			// a done signal that fires when the CRD is no longer installed (and the informer gets shut down)
 			done, err := watch.src.StartNotifyDone(ctrlCtx, watch.handler, c.Queue, watch.predicates...)
 			if err != nil {

@@ -290,7 +290,10 @@ func (r RunnableFunc) Start(ctx context.Context) error {
 	return r(ctx)
 }
 
-type SporadicRunnable interface {
+// ConditionalRunnable wraps Runnable with an additonal Ready method
+// that returns a channel that fires when the underlying Runnable can
+// be started.
+type ConditionalRunnable interface {
 	Runnable
 	Ready(ctx context.Context) <-chan struct{}
 }
