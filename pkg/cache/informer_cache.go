@@ -159,16 +159,29 @@ func (ip *informerCache) GetInformer(ctx context.Context, obj client.Object) (In
 	return i.Informer, err
 }
 
-func (ip *informerCache) GetStoppableInformer(ctx context.Context, obj client.Object) (Informer, <-chan struct{}, error) {
+//func (ip *informerCache) GetStoppableInformer(ctx context.Context, obj client.Object) (Informer, <-chan struct{}, error) {
+//	gvk, err := apiutil.GVKForObject(obj, ip.Scheme)
+//	if err != nil {
+//		return nil, nil, err
+//	}
+//	_, i, err := ip.InformersMap.Get(ctx, gvk, obj, true)
+//	if err != nil {
+//		return nil, nil, err
+//	}
+//	return i.Informer, i.StopCh, err
+//}
+
+func (ip *informerCache) GetInformerStop(ctx context.Context, obj client.Object) (<-chan struct{}, error) {
 	gvk, err := apiutil.GVKForObject(obj, ip.Scheme)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	_, i, err := ip.InformersMap.Get(ctx, gvk, obj, true)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return i.Informer, i.StopCh, err
+	return i.StopCh, err
+
 }
 
 // NeedLeaderElection implements the LeaderElectionRunnable interface

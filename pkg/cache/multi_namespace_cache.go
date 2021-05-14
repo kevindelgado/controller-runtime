@@ -19,6 +19,7 @@ package cache
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -83,18 +84,27 @@ func (c *multiNamespaceCache) GetInformer(ctx context.Context, obj client.Object
 }
 
 // TODO
-func (c *multiNamespaceCache) GetStoppableInformer(ctx context.Context, obj client.Object) (Informer, <-chan struct{}, error) {
-	panic("not implemented")
-	//informers := map[string]Informer{}
-	//for ns, cache := range c.namespaceToCache {
+func (c *multiNamespaceCache) GetInformerStop(ctx context.Context, obj client.Object) (<-chan struct{}, error) {
+	multiStopCh := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, cache := range c.namespaceToCache {
+		stopCh, err := cache.GetInformerStop(ctx, obj)
+		if err != nil {
+			return nil, err
+		}
+		wg.Add(1)
+		go func(stopCh <-chan struct{}) {
+			defer wg.Done()
+			<-stopCh
 
-	//	informer, _, err := cache.GetStoppableInformer(ctx, obj)
-	//	if err != nil {
-	//		return nil, nil, err
-	//	}
-	//	informers[ns] = informer
-	//}
-	//return &multiNamespaceInformer{namespaceToInformer: informers}, nil, nil
+		}(stopCh)
+	}
+
+	go func() {
+		defer close(multiStopCh)
+		wg.Done()
+	}()
+	return multiStopCh, nil
 }
 
 func (c *multiNamespaceCache) GetInformerForKind(ctx context.Context, gvk schema.GroupVersionKind) (Informer, error) {

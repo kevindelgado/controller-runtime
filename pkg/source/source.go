@@ -165,9 +165,9 @@ func (ks *Kind) StartNotifyDone(ctx context.Context, handler handler.EventHandle
 	go func() {
 		// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
 		fmt.Printf("ks.Type = %+v\n", ks.Type)
-		var err error
-		var i cache.Informer
-		i, stopCh, err = ks.cache.GetStoppableInformer(ctx, ks.Type)
+		//var err error
+		//var i cache.Informer
+		i, err := ks.cache.GetInformer(ctx, ks.Type)
 		if err != nil {
 			fmt.Printf("kind GetInformer err = %+v\n", err)
 			kindMatchErr := &meta.NoKindMatchError{}
@@ -175,6 +175,11 @@ func (ks *Kind) StartNotifyDone(ctx context.Context, handler handler.EventHandle
 				log.Error(err, "if kind is a CRD, it should be installed before calling Start",
 					"kind", kindMatchErr.GroupKind)
 			}
+			ks.started <- err
+			return
+		}
+		stopCh, err = ks.cache.GetInformerStop(ctx, ks.Type)
+		if err != nil {
 			ks.started <- err
 			return
 		}
