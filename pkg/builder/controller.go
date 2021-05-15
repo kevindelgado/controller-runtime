@@ -220,40 +220,49 @@ func (blder *Builder) project(obj client.Object, proj objectProjection) (client.
 	}
 }
 
+func (blder *Builder) generateConditionalSource(typeForSrc client.Object) (source.Source, error) {
+	gvk, err := getGvk(blder.forInput.object, blder.mgr.GetScheme())
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("gvk = %+v\n", gvk)
+	dc, err := discovery.NewDiscoveryClientForConfig(blder.mgr.GetConfig())
+	if err != nil {
+		return nil, err
+	}
+	existsInDiscovery := func() bool {
+		resources, err := dc.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
+		if err != nil {
+			fmt.Printf("NOT in discovery gvk = %+v\n", gvk)
+			return false
+		}
+		for _, res := range resources.APIResources {
+			if res.Kind == gvk.Kind {
+				fmt.Printf("YES in discovery gvk = %+v\n", gvk)
+				return true
+			}
+		}
+		fmt.Printf("NOT in discovery kind = %+v\n", gvk)
+		return false
+	}
+	return &source.ConditionalKind{Kind: source.Kind{Type: typeForSrc}, DiscoveryCheck: existsInDiscovery}, nil
+
+}
+
 func (blder *Builder) doWatch() error {
 	// Reconcile type
 	typeForSrc, err := blder.project(blder.forInput.object, blder.forInput.objectProjection)
 	if err != nil {
 		return err
 	}
+
 	var src source.Source
-	fmt.Printf("blder.forInput.conditional = %+v\n", blder.forInput.conditional)
 	if blder.forInput.conditional {
-		gvk, err := getGvk(blder.forInput.object, blder.mgr.GetScheme())
+		var err error
+		src, err = blder.generateConditionalSource(typeForSrc)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("gvk = %+v\n", gvk)
-		dc, err := discovery.NewDiscoveryClientForConfig(blder.mgr.GetConfig())
-		if err != nil {
-			return err
-		}
-		existsInDiscovery := func() bool {
-			resources, err := dc.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
-			if err != nil {
-				fmt.Printf("NOT in discovery gvk = %+v\n", gvk)
-				return false
-			}
-			for _, res := range resources.APIResources {
-				if res.Kind == gvk.Kind {
-					fmt.Printf("YES in discovery gvk = %+v\n", gvk)
-					return true
-				}
-			}
-			fmt.Printf("NOT in discovery kind = %+v\n", gvk)
-			return false
-		}
-		src = &source.ConditionalKind{Kind: source.Kind{Type: typeForSrc}, DiscoveryCheck: existsInDiscovery}
 	} else {
 		src = &source.Kind{Type: typeForSrc}
 	}
@@ -269,8 +278,17 @@ func (blder *Builder) doWatch() error {
 		if err != nil {
 			return err
 		}
-		src := &source.Kind{Type: typeForSrc}
-		// TODO: handle conditional watches for owns types too
+
+		var src source.Source
+		if own.conditional {
+			var err error
+			src, err = blder.generateConditionalSource(typeForSrc)
+			if err != nil {
+				return err
+			}
+		} else {
+			src = &source.Kind{Type: typeForSrc}
+		}
 		hdler := &handler.EnqueueRequestForOwner{
 			OwnerType:    blder.forInput.object,
 			IsController: true,
@@ -286,8 +304,6 @@ func (blder *Builder) doWatch() error {
 	for _, w := range blder.watchesInput {
 		allPredicates := append([]predicate.Predicate(nil), blder.globalPredicates...)
 		allPredicates = append(allPredicates, w.predicates...)
-
-		// TODO: handle conditional watches for owns types too
 
 		// If the source of this watch is of type *source.Kind, project it.
 		if srckind, ok := w.src.(*source.Kind); ok {
