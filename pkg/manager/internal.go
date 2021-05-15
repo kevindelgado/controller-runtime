@@ -203,13 +203,11 @@ func (cm *controllerManager) Add(r Runnable) error {
 
 	// Add the runnable to the leader election or the non-leaderelection list
 	if leRunnable, ok := r.(LeaderElectionRunnable); ok && !leRunnable.NeedLeaderElection() {
-		fmt.Println("mgr adding non ler")
 		shouldStart = cm.started
 		cm.nonLeaderElectionRunnables = append(cm.nonLeaderElectionRunnables, r)
 	} else if hasCache, ok := r.(hasCache); ok {
 		cm.caches = append(cm.caches, hasCache)
 	} else {
-		fmt.Println("mgr adding ler")
 		shouldStart = cm.startedLeader
 		cm.leaderElectionRunnables = append(cm.leaderElectionRunnables, r)
 	}
@@ -446,7 +444,6 @@ func (cm *controllerManager) serveHealthProbes() {
 }
 
 func (cm *controllerManager) Start(ctx context.Context) (err error) {
-	fmt.Println("mgr Start")
 	if err := cm.Add(cm.cluster); err != nil {
 		return fmt.Errorf("failed to add cluster to runnables: %w", err)
 	}
@@ -505,18 +502,14 @@ func (cm *controllerManager) Start(ctx context.Context) (err error) {
 		}
 	}()
 
-	fmt.Println("mgr start waiting on signal")
 	select {
 	case <-ctx.Done():
-		fmt.Println("mgr start ctx.Done fired")
 		// We are done
 		return nil
 	case err := <-cm.errChan:
-		fmt.Printf("mgr start errChan fired, %v\n", err)
 		// Error starting or running a runnable
 		return err
 	}
-	fmt.Println("mgr start finished")
 	return nil
 }
 
@@ -600,7 +593,6 @@ func (cm *controllerManager) startNonLeaderElectionRunnables() {
 
 	// Start the non-leaderelection Runnables after the cache has synced
 	for _, c := range cm.nonLeaderElectionRunnables {
-		fmt.Println("nonLER")
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
 		cm.startRunnable(c)
@@ -615,7 +607,6 @@ func (cm *controllerManager) startLeaderElectionRunnables() {
 
 	// Start the leader election Runnables after the cache has synced
 	for _, c := range cm.leaderElectionRunnables {
-		fmt.Println("LER")
 		// Controllers block, but we want to return an error if any have an error starting.
 		// Write any Start errors to a channel so we can return them
 		cm.startRunnable(c)
@@ -695,12 +686,10 @@ func (cm *controllerManager) Elected() <-chan struct{} {
 
 func (cm *controllerManager) startRunnable(r Runnable) {
 	if conditionalRunnable, ok := r.(ConditionalRunnable); ok {
-		fmt.Printf("starting conditional runnable = %+v\n", conditionalRunnable)
 		cm.startConditionalRunnable(conditionalRunnable)
 	} else {
 		cm.waitForRunnable.Add(1)
 		go func() {
-			fmt.Printf("starting non-conditional runnable, %v\n", r)
 			defer cm.waitForRunnable.Done()
 			if err := r.Start(cm.internalCtx); err != nil {
 				cm.errChan <- err
@@ -718,27 +707,17 @@ func (cm *controllerManager) startRunnable(r Runnable) {
 // Once the runnable stops, loop back and wait for ready again.
 func (cm *controllerManager) startConditionalRunnable(cr ConditionalRunnable) {
 	go func() {
-		fmt.Println("mgr got an cr")
 		for {
-			fmt.Println("mgr waiting on cr ReadyToStart")
 			select {
 			case <-cm.internalCtx.Done():
-				fmt.Println("mgr internal context fired")
 				return
 			case <-cr.Ready(cm.internalCtx):
-				fmt.Println("mgr ready, starting the runnable")
-				// this doesn't block
 				cm.waitForRunnable.Add(1)
 				defer cm.waitForRunnable.Done()
-				fmt.Printf("starting conditional runnable, %v\n", cr)
 				if err := cr.Start(cm.internalCtx); err != nil {
 					cm.errChan <- err
 				}
-				fmt.Println("mgr runnable done running")
-				// TODO: what happens if we don't return here?
-				return
 			}
-			fmt.Println("mgr done running, looping back to wait on ready")
 		}
 	}()
 }
