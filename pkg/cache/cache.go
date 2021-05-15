@@ -54,7 +54,7 @@ type Informers interface {
 	// API kind and resource.
 	GetInformer(ctx context.Context, obj client.Object) (Informer, error)
 
-	// GetInformerStop fetches the stop channel for the informer for the given object (constructing
+	// GetInformerStop fetches the stop channel of the informer for the given object (constructing
 	// the informer if necessary). This stop channel fires when the controller has stopped.
 	GetInformerStop(ctx context.Context, obj client.Object) (<-chan struct{}, error)
 

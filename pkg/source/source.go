@@ -69,7 +69,7 @@ type ConditionalSource interface {
 	StartNotifyDone(context.Context, handler.EventHandler, workqueue.RateLimitingInterface, ...predicate.Predicate) (<-chan struct{}, error)
 
 	// Ready blocks until it is safe to call StartNotifyDone, meaning the Source's Kind's type has been
-	// successfully installed on the cluster  and is ready to have its events watched and handled.
+	// successfully installed on the cluster and is ready to have its events watched and handled.
 	Ready(ctx context.Context, wg *sync.WaitGroup)
 }
 
@@ -124,21 +124,19 @@ type ConditionalKind struct {
 	DiscoveryCheck func() bool
 }
 
+// Ready blocks until the DiscoveryCheck passes indicating the kind
+// can safely be started.
 func (sk *ConditionalKind) Ready(ctx context.Context, wg *sync.WaitGroup) {
-	fmt.Println("src ready called")
 	defer wg.Done()
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("src context shutdown")
 			return
 		default:
 			if sk.DiscoveryCheck() {
-				fmt.Println("src ready discovery check pass closing ready")
 				return
 			}
 			//TODO: parameterize this
-			fmt.Println("src ready discovery check fail, spin")
 			time.Sleep(5 * time.Second)
 		}
 	}
@@ -178,12 +176,8 @@ func (ks *Kind) StartNotifyDone(ctx context.Context, handler handler.EventHandle
 	var stopCh <-chan struct{}
 	go func() {
 		// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
-		fmt.Printf("ks.Type = %+v\n", ks.Type)
-		//var err error
-		//var i cache.Informer
 		i, err := ks.cache.GetInformer(ctx, ks.Type)
 		if err != nil {
-			fmt.Printf("kind GetInformer err = %+v\n", err)
 			kindMatchErr := &meta.NoKindMatchError{}
 			if errors.As(err, &kindMatchErr) {
 				log.Error(err, "if kind is a CRD, it should be installed before calling Start",
@@ -202,7 +196,6 @@ func (ks *Kind) StartNotifyDone(ctx context.Context, handler handler.EventHandle
 			// Would be great to return something more informative here
 			ks.started <- errors.New("cache did not sync")
 		}
-		fmt.Println("kind closing ks.started")
 		close(ks.started)
 	}()
 

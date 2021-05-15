@@ -128,7 +128,7 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 		}
 	}
 
-	// These get held on indefinitely
+	// these get held on indefinitely
 	if conditionalSource, ok := src.(source.ConditionalSource); ok && !c.Started {
 		c.conditionalWatches = append(c.conditionalWatches, conditionalWatchDescription{src: conditionalSource, handler: evthdler, predicates: prct})
 		return nil
@@ -149,7 +149,6 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 // Ready is called by the controller manager to determine when all the conditionalWatches
 // can be started. It blocks until ready.
 func (c *Controller) Ready(ctx context.Context) <-chan struct{} {
-	fmt.Printf("ctrl ReadyToStart len(c.conditionalWatches) = %+v\n", len(c.conditionalWatches))
 	ready := make(chan struct{})
 	if len(c.conditionalWatches) == 0 {
 		close(ready)
@@ -159,7 +158,6 @@ func (c *Controller) Ready(ctx context.Context) <-chan struct{} {
 	var wg sync.WaitGroup
 	for _, w := range c.conditionalWatches {
 		wg.Add(1)
-		fmt.Println("ctrl checking src ready")
 		go w.src.Ready(ctx, &wg)
 	}
 
@@ -227,11 +225,9 @@ func (c *Controller) Start(ctx context.Context) error {
 			}
 			// wait for done to fire and when it does, shut down the controller and reset c.Started
 			go func() {
-				fmt.Println("ctrl waiting for done")
+				defer ctrlCancel()
 				<-done
-				fmt.Println("ctrl done fired, ctrlCancelling")
 				c.Started = false
-				ctrlCancel()
 			}()
 		}
 

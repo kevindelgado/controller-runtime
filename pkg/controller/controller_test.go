@@ -90,7 +90,7 @@ var _ = Describe("controller.Controller", func() {
 			close(done)
 		})
 
-		// TODO: we should dupe this for sporadic controllers
+		// TODO: test for conditional controllers as well
 		It("should not leak goroutines when stopped", func() {
 			currentGRs := goleak.IgnoreCurrent()
 

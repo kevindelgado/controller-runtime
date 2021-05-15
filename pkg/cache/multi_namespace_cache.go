@@ -83,7 +83,6 @@ func (c *multiNamespaceCache) GetInformer(ctx context.Context, obj client.Object
 	return &multiNamespaceInformer{namespaceToInformer: informers}, nil
 }
 
-// TODO
 func (c *multiNamespaceCache) GetInformerStop(ctx context.Context, obj client.Object) (<-chan struct{}, error) {
 	multiStopCh := make(chan struct{})
 	var wg sync.WaitGroup
