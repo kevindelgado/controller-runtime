@@ -99,6 +99,12 @@ func (p projectAs) ApplyToWatches(opts *WatchesInput) {
 	opts.objectProjection = objectProjection(p)
 }
 
+type Conditional struct{}
+
+func (s Conditional) ApplyToFor(opts *ForInput) {
+	opts.conditional = true
+}
+
 var (
 	// OnlyMetadata tells the controller to *only* cache metadata, and to watch
 	// the the API server in metadata-only form.  This is useful when watching

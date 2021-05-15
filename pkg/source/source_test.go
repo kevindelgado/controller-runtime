@@ -19,6 +19,8 @@ package source_test
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -35,6 +37,78 @@ import (
 )
 
 var _ = Describe("Source", func() {
+	Describe("ConditionalKind", func() {
+		// TODO: mock out discovery checks that both pass and fail
+		// test Ready with pass/fail DCs
+		// test StartNotifyDone with pass/fail DCs
+
+		//var c chan struct{}
+		//var p *corev1.Pod
+		//var ic *informertest.FakeInformers
+
+		//BeforeEach(func(done Done) {
+		//	ic = &informertest.FakeInformers{}
+		//	c = make(chan struct{})
+		//	p = &corev1.Pod{
+		//		Spec: corev1.PodSpec{
+		//			Containers: []corev1.Container{
+		//				{Name: "test", Image: "test"},
+		//			},
+		//		},
+		//	}
+		//	close(done)
+		//})
+
+		Context("for builtin resources", func() {
+			It("should always be ready when discovery check passes", func(done Done) {
+				yesInDiscovery := func() bool { return true }
+				//notInDiscovery := func() bool { return false }
+				kind := source.Kind{Type: &corev1.Pod{}}
+				instance := source.ConditionalKind{Kind: kind, DiscoveryCheck: yesInDiscovery}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				ready := make(chan struct{})
+				var wg sync.WaitGroup
+				wg.Add(1)
+				go func() {
+					instance.Ready(ctx, &wg)
+					close(ready)
+				}()
+				select {
+				case <-ctx.Done():
+					defer GinkgoRecover()
+					Fail("Unexpected context closed")
+				case <-ready:
+					break
+				}
+				close(done)
+			})
+			//It("should never be ready when discovery check fails", func(done Done) {
+			//	//yesInDiscovery := func() bool { return true }
+			//	notInDiscovery := func() bool { return false }
+			//	kind := source.Kind{Type: &corev1.Pod{}}
+			//	instance := source.ConditionalKind{Kind: kind, DiscoveryCheck: notInDiscovery}
+			//	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			//	defer cancel()
+			//	ready := make(chan struct{})
+			//	var wg sync.WaitGroup
+			//	wg.Add(1)
+			//	go func() {
+			//		instance.Ready(ctx, &wg)
+			//		close(ready)
+			//	}()
+			//	select {
+			//	case <-ctx.Done():
+			//		break
+			//	case <-ready:
+			//		defer GinkgoRecover()
+			//		Fail("Unexpected ready")
+			//	}
+			//	close(done)
+			//})
+		})
+
+	})
 	Describe("Kind", func() {
 		var c chan struct{}
 		var p *corev1.Pod
