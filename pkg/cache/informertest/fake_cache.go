@@ -84,6 +84,10 @@ func (c *FakeInformers) GetInformerStop(ctx context.Context, obj client.Object) 
 	// TODO: not implemented
 	return nil, nil
 }
+func (c *FakeInformers) GetInformerWithOptions(ctx context.Context, obj client.Object, stopperCh chan<- struct{}, handler func(r *toolscache.Reflector, err error)) (cache.Informer, <-chan struct{}, error) {
+	// TODO: not implemented
+	return nil, nil, nil
+}
 
 // WaitForCacheSync implements Informers
 func (c *FakeInformers) WaitForCacheSync(ctx context.Context) bool {

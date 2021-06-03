@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
+	toolscache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cache/internal"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -170,6 +171,21 @@ func (ip *informerCache) GetInformerStop(ctx context.Context, obj client.Object)
 		return nil, err
 	}
 	return i.StopCh, err
+
+}
+
+// GetInformerWithOptions
+func (ip *informerCache) GetInformerWithOptions(ctx context.Context, obj client.Object, stopperCh chan struct{}, handler func(r *toolscache.Reflector, err error)) (Informer, <-chan struct{}, error) {
+	gvk, err := apiutil.GVKForObject(obj, ip.Scheme)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, i, err := ip.InformersMap.Get2(ctx, gvk, obj, stopperCh, handler)
+	if err != nil {
+		return nil, nil, err
+	}
+	return i.Informer, i.StopCh, err
 
 }
 
