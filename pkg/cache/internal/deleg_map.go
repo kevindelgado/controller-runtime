@@ -106,6 +106,21 @@ func (m *InformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj
 	}
 }
 
+func (m *InformersMap) Get2(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object, stopperCh chan struct{}, handler func(r *cache.Reflector, err error)) (bool, *MapEntry, error) {
+	switch obj.(type) {
+	case *unstructured.Unstructured:
+		return m.unstructured.Get2(ctx, gvk, obj, stopperCh, handler)
+	case *unstructured.UnstructuredList:
+		return m.unstructured.Get2(ctx, gvk, obj, stopperCh, handler)
+	case *metav1.PartialObjectMetadata:
+		return m.metadata.Get2(ctx, gvk, obj, stopperCh, handler)
+	case *metav1.PartialObjectMetadataList:
+		return m.metadata.Get2(ctx, gvk, obj, stopperCh, handler)
+	default:
+		return m.structured.Get2(ctx, gvk, obj, stopperCh, handler)
+	}
+}
+
 // newStructuredInformersMap creates a new InformersMap for structured objects.
 func newStructuredInformersMap(config *rest.Config, scheme *runtime.Scheme, mapper meta.RESTMapper, resync time.Duration,
 	namespace string, selectors SelectorsByGVK) *specificInformersMap {

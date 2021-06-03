@@ -114,6 +114,11 @@ func (c *multiNamespaceCache) GetInformerStop(ctx context.Context, obj client.Ob
 	return multiStopCh, nil
 }
 
+// TODO
+func (c *multiNamespaceCache) GetInformerWithOptions(ctx context.Context, obj client.Object, stopperCh chan struct{}, handler func(r *toolscache.Reflector, err error)) (Informer, <-chan struct{}, error) {
+	panic("TODO")
+}
+
 func (c *multiNamespaceCache) GetInformerForKind(ctx context.Context, gvk schema.GroupVersionKind) (Informer, error) {
 	informers := map[string]Informer{}
 	for ns, cache := range c.namespaceToCache {

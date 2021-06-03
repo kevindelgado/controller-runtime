@@ -46,6 +46,8 @@ type Cache interface {
 	Informers
 }
 
+type ErrorHandler func(r *toolscache.Reflector, err error)
+
 // Informers knows how to create or fetch informers for different
 // group-version-kinds, and add indices to those informers.  It's safe to call
 // GetInformer from multiple threads.
@@ -53,6 +55,11 @@ type Informers interface {
 	// GetInformer fetches or constructs an informer for the given object that corresponds to a single
 	// API kind and resource.
 	GetInformer(ctx context.Context, obj client.Object) (Informer, error)
+
+	// GetInformerWithOptions
+	// TODO: return a struct?
+	// TODO: pass options?
+	GetInformerWithOptions(ctx context.Context, obj client.Object, stopperCh chan struct{}, handler func(r *toolscache.Reflector, err error)) (Informer, <-chan struct{}, error)
 
 	// GetInformerStop fetches the stop channel of the informer for the given object (constructing
 	// the informer if necessary). This stop channel fires when the controller has stopped.
