@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	toolscache "k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -174,9 +175,30 @@ func (ks *Kind) StartNotifyDone(ctx context.Context, handler handler.EventHandle
 	ctx, ks.startCancel = context.WithCancel(ctx)
 	ks.started = make(chan error)
 	var stopCh <-chan struct{}
+	var i cache.Informer
+	var err error
 	go func() {
-		// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
-		i, err := ks.cache.GetInformer(ctx, ks.Type)
+		//// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
+		//i, err := ks.cache.GetInformer(ctx, ks.Type)
+		//if err != nil {
+		//	kindMatchErr := &meta.NoKindMatchError{}
+		//	if errors.As(err, &kindMatchErr) {
+		//		log.Error(err, "if kind is a CRD, it should be installed before calling Start",
+		//			"kind", kindMatchErr.GroupKind)
+		//	}
+		//	ks.started <- err
+		//	return
+		//}
+		//stopCh, err = ks.cache.GetInformerStop(ctx, ks.Type)
+		//if err != nil {
+		//	ks.started <- err
+		//	return
+		//}
+		stopper := make(chan struct{})
+		errHandler := func(r *toolscache.Reflector, err error) {
+			close(stopper)
+		}
+		i, stopCh, err = ks.cache.GetInformerWithOptions(ctx, ks.Type, stopper, errHandler)
 		if err != nil {
 			kindMatchErr := &meta.NoKindMatchError{}
 			if errors.As(err, &kindMatchErr) {
