@@ -106,18 +106,18 @@ func (m *InformersMap) WaitForCacheSync(ctx context.Context) bool {
 //	}
 //}
 
-func (m *InformersMap) Get2(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object, stopperCh chan struct{}, handler func(r *cache.Reflector, err error)) (bool, *MapEntry, error) {
+func (m *InformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object, stopperCh chan struct{}, handler func(r *cache.Reflector, err error)) (bool, *MapEntry, error) {
 	switch obj.(type) {
 	case *unstructured.Unstructured:
-		return m.unstructured.Get2(ctx, gvk, obj, stopperCh, handler)
+		return m.unstructured.Get(ctx, gvk, obj, stopperCh, handler)
 	case *unstructured.UnstructuredList:
-		return m.unstructured.Get2(ctx, gvk, obj, stopperCh, handler)
+		return m.unstructured.Get(ctx, gvk, obj, stopperCh, handler)
 	case *metav1.PartialObjectMetadata:
-		return m.metadata.Get2(ctx, gvk, obj, stopperCh, handler)
+		return m.metadata.Get(ctx, gvk, obj, stopperCh, handler)
 	case *metav1.PartialObjectMetadataList:
-		return m.metadata.Get2(ctx, gvk, obj, stopperCh, handler)
+		return m.metadata.Get(ctx, gvk, obj, stopperCh, handler)
 	default:
-		return m.structured.Get2(ctx, gvk, obj, stopperCh, handler)
+		return m.structured.Get(ctx, gvk, obj, stopperCh, handler)
 	}
 }
 
