@@ -173,96 +173,96 @@ func (ip *specificInformersMap) HasSyncedFuncs() []cache.InformerSynced {
 	return syncedFuncs
 }
 
-// Get will create a new Informer and add it to the map of specificInformersMap if none exists.  Returns
-// the Informer from the map.
-func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object, stopOnError bool) (bool, *MapEntry, error) {
-	// Return the informer if it is found
-	i, started, ok := func() (*MapEntry, bool, bool) {
-		ip.mu.RLock()
-		defer ip.mu.RUnlock()
-		i, ok := ip.informersByGVK[gvk]
-		return i, ip.started, ok
-	}()
-
-	if !ok {
-		var err error
-		if i, started, err = ip.addInformerToMap(gvk, obj, stopOnError); err != nil {
-			return started, nil, err
-		}
-	}
-
-	if started && !i.Informer.HasSynced() {
-		// Wait for it to sync before returning the Informer so that folks don't read from a stale cache.
-		if !cache.WaitForCacheSync(ctx.Done(), i.Informer.HasSynced) {
-			return started, nil, apierrors.NewTimeoutError(fmt.Sprintf("failed waiting for %T Informer to sync", obj), 0)
-		}
-	}
-
-	return started, i, nil
-}
-
-func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, obj runtime.Object, stopOnError bool) (*MapEntry, bool, error) {
-	ip.mu.Lock()
-	defer ip.mu.Unlock()
-
-	// Check the cache to see if we already have an Informer.  If we do, return the Informer.
-	// This is for the case where 2 routines tried to get the informer when it wasn't in the map
-	// so neither returned early, but the first one created it.
-	if i, ok := ip.informersByGVK[gvk]; ok {
-		return i, ip.started, nil
-	}
-
-	// Create a NewSharedIndexInformer and add it to the map.
-	var lw *cache.ListWatch
-	lw, err := ip.createListWatcher(gvk, ip)
-	if err != nil {
-		return nil, false, err
-	}
-	ni := cache.NewSharedIndexInformer(lw, obj, resyncPeriod(ip.resync)(), cache.Indexers{
-		cache.NamespaceIndex: cache.MetaNamespaceIndexFunc,
-	})
-	rm, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if err != nil {
-		return nil, false, err
-	}
-
-	switch obj.(type) {
-	case *metav1.PartialObjectMetadata, *metav1.PartialObjectMetadataList:
-		ni = metadataSharedIndexInformerPreserveGVK(gvk, ni)
-	default:
-	}
-
-	informerStop := make(chan struct{})
-	i := &MapEntry{
-		Informer: ni,
-		Reader:   CacheReader{indexer: ni.GetIndexer(), groupVersionKind: gvk, scopeName: rm.Scope.Name()},
-		StopCh:   informerStop,
-	}
-	ip.informersByGVK[gvk] = i
-
-	go func() {
-		<-ip.stop
-		close(informerStop)
-	}()
-
-	i.Informer.SetWatchErrorHandler(func(r *cache.Reflector, err error) {
-		// TODO: ensure the error is a kind not found error before stopping
-		if stopOnError {
-			close(informerStop)
-		}
-	})
-
-	// Start the Informer if need by
-	// TODO(seans): write thorough tests and document what happens here - can you add indexers?
-	// can you add eventhandlers?
-	if ip.started {
-		go func() {
-			i.Informer.Run(informerStop)
-			delete(ip.informersByGVK, gvk)
-		}()
-	}
-	return i, ip.started, nil
-}
+//// Get will create a new Informer and add it to the map of specificInformersMap if none exists.  Returns
+//// the Informer from the map.
+//func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object, stopOnError bool) (bool, *MapEntry, error) {
+//	// Return the informer if it is found
+//	i, started, ok := func() (*MapEntry, bool, bool) {
+//		ip.mu.RLock()
+//		defer ip.mu.RUnlock()
+//		i, ok := ip.informersByGVK[gvk]
+//		return i, ip.started, ok
+//	}()
+//
+//	if !ok {
+//		var err error
+//		if i, started, err = ip.addInformerToMap(gvk, obj, stopOnError); err != nil {
+//			return started, nil, err
+//		}
+//	}
+//
+//	if started && !i.Informer.HasSynced() {
+//		// Wait for it to sync before returning the Informer so that folks don't read from a stale cache.
+//		if !cache.WaitForCacheSync(ctx.Done(), i.Informer.HasSynced) {
+//			return started, nil, apierrors.NewTimeoutError(fmt.Sprintf("failed waiting for %T Informer to sync", obj), 0)
+//		}
+//	}
+//
+//	return started, i, nil
+//}
+//
+//func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, obj runtime.Object, stopOnError bool) (*MapEntry, bool, error) {
+//	ip.mu.Lock()
+//	defer ip.mu.Unlock()
+//
+//	// Check the cache to see if we already have an Informer.  If we do, return the Informer.
+//	// This is for the case where 2 routines tried to get the informer when it wasn't in the map
+//	// so neither returned early, but the first one created it.
+//	if i, ok := ip.informersByGVK[gvk]; ok {
+//		return i, ip.started, nil
+//	}
+//
+//	// Create a NewSharedIndexInformer and add it to the map.
+//	var lw *cache.ListWatch
+//	lw, err := ip.createListWatcher(gvk, ip)
+//	if err != nil {
+//		return nil, false, err
+//	}
+//	ni := cache.NewSharedIndexInformer(lw, obj, resyncPeriod(ip.resync)(), cache.Indexers{
+//		cache.NamespaceIndex: cache.MetaNamespaceIndexFunc,
+//	})
+//	rm, err := ip.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+//	if err != nil {
+//		return nil, false, err
+//	}
+//
+//	switch obj.(type) {
+//	case *metav1.PartialObjectMetadata, *metav1.PartialObjectMetadataList:
+//		ni = metadataSharedIndexInformerPreserveGVK(gvk, ni)
+//	default:
+//	}
+//
+//	informerStop := make(chan struct{})
+//	i := &MapEntry{
+//		Informer: ni,
+//		Reader:   CacheReader{indexer: ni.GetIndexer(), groupVersionKind: gvk, scopeName: rm.Scope.Name()},
+//		StopCh:   informerStop,
+//	}
+//	ip.informersByGVK[gvk] = i
+//
+//	go func() {
+//		<-ip.stop
+//		close(informerStop)
+//	}()
+//
+//	i.Informer.SetWatchErrorHandler(func(r *cache.Reflector, err error) {
+//		// TODO: ensure the error is a kind not found error before stopping
+//		if stopOnError {
+//			close(informerStop)
+//		}
+//	})
+//
+//	// Start the Informer if need by
+//	// TODO(seans): write thorough tests and document what happens here - can you add indexers?
+//	// can you add eventhandlers?
+//	if ip.started {
+//		go func() {
+//			i.Informer.Run(informerStop)
+//			delete(ip.informersByGVK, gvk)
+//		}()
+//	}
+//	return i, ip.started, nil
+//}
 
 type ErrorHandler func(r *cache.Reflector, err error)
 
