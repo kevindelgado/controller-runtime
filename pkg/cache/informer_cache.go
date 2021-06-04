@@ -57,7 +57,6 @@ func (ip *informerCache) Get(ctx context.Context, key client.ObjectKey, out clie
 		return err
 	}
 
-	//started, cache, err := ip.InformersMap.Get(ctx, gvk, out, false)
 	started, cache, err := ip.InformersMap.Get(ctx, gvk, out, nil, nil)
 	if err != nil {
 		return err
@@ -77,7 +76,6 @@ func (ip *informerCache) List(ctx context.Context, out client.ObjectList, opts .
 		return err
 	}
 
-	//started, cache, err := ip.InformersMap.Get(ctx, *gvk, cacheTypeObj, false)
 	started, cache, err := ip.InformersMap.Get(ctx, *gvk, cacheTypeObj, nil, nil)
 	if err != nil {
 		return err
@@ -140,7 +138,6 @@ func (ip *informerCache) GetInformerForKind(ctx context.Context, gvk schema.Grou
 		return nil, err
 	}
 
-	//_, i, err := ip.InformersMap.Get(ctx, gvk, obj, false)
 	_, i, err := ip.InformersMap.Get(ctx, gvk, obj, nil, nil)
 	if err != nil {
 		return nil, err
@@ -155,7 +152,6 @@ func (ip *informerCache) GetInformer(ctx context.Context, obj client.Object) (In
 		return nil, err
 	}
 
-	//_, i, err := ip.InformersMap.Get(ctx, gvk, obj, false)
 	_, i, err := ip.InformersMap.Get(ctx, gvk, obj, nil, nil)
 	if err != nil {
 		return nil, err
@@ -163,21 +159,8 @@ func (ip *informerCache) GetInformer(ctx context.Context, obj client.Object) (In
 	return i.Informer, err
 }
 
-//// GetInformerStop returns the stopChannel of the informer for the obj
-//func (ip *informerCache) GetInformerStop(ctx context.Context, obj client.Object) (<-chan struct{}, error) {
-//	gvk, err := apiutil.GVKForObject(obj, ip.Scheme)
-//	if err != nil {
-//		return nil, err
-//	}
-//	_, i, err := ip.InformersMap.Get(ctx, gvk, obj, true)
-//	if err != nil {
-//		return nil, err
-//	}
-//	return i.StopCh, err
-//
-//}
-
-// GetInformerWithOptions
+// GetInformerWithOptions retrieves the informer and its stop channel, creating and starting a
+// new informer with the supplied options if necessary.
 func (ip *informerCache) GetInformerWithOptions(ctx context.Context, obj client.Object, options *InformerOptions) (*InformerInfo, error) {
 	gvk, err := apiutil.GVKForObject(obj, ip.Scheme)
 	if err != nil {
