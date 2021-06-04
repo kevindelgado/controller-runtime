@@ -175,30 +175,13 @@ func (ks *Kind) StartNotifyDone(ctx context.Context, handler handler.EventHandle
 	ctx, ks.startCancel = context.WithCancel(ctx)
 	ks.started = make(chan error)
 	var stopCh <-chan struct{}
-	var i cache.Informer
-	var err error
 	go func() {
-		//// Lookup the Informer from the Cache and add an EventHandler which populates the Queue
-		//i, err := ks.cache.GetInformer(ctx, ks.Type)
-		//if err != nil {
-		//	kindMatchErr := &meta.NoKindMatchError{}
-		//	if errors.As(err, &kindMatchErr) {
-		//		log.Error(err, "if kind is a CRD, it should be installed before calling Start",
-		//			"kind", kindMatchErr.GroupKind)
-		//	}
-		//	ks.started <- err
-		//	return
-		//}
-		//stopCh, err = ks.cache.GetInformerStop(ctx, ks.Type)
-		//if err != nil {
-		//	ks.started <- err
-		//	return
-		//}
 		stopper := make(chan struct{})
 		errHandler := func(r *toolscache.Reflector, err error) {
 			close(stopper)
 		}
-		i, stopCh, err = ks.cache.GetInformerWithOptions(ctx, ks.Type, stopper, errHandler)
+		informerInfo, err := ks.cache.GetInformerWithOptions(ctx, ks.Type, &cache.InformerOptions{stopper, errHandler})
+		stopCh = informerInfo.StopCh
 		if err != nil {
 			kindMatchErr := &meta.NoKindMatchError{}
 			if errors.As(err, &kindMatchErr) {
@@ -208,12 +191,7 @@ func (ks *Kind) StartNotifyDone(ctx context.Context, handler handler.EventHandle
 			ks.started <- err
 			return
 		}
-		stopCh, err = ks.cache.GetInformerStop(ctx, ks.Type)
-		if err != nil {
-			ks.started <- err
-			return
-		}
-		i.AddEventHandler(internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct})
+		informerInfo.Informer.AddEventHandler(internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct})
 		if !ks.cache.WaitForCacheSync(ctx) {
 			// Would be great to return something more informative here
 			ks.started <- errors.New("cache did not sync")
