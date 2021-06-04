@@ -77,10 +77,6 @@ type Informers interface {
 	// If the informer does not already exist, it constructs an informer with the supplied InformerOptions.
 	GetInformerWithOptions(ctx context.Context, obj client.Object, options *InformerOptions) (*InformerInfo, error)
 
-	// GetInformerStop fetches the stop channel of the informer for the given object (constructing
-	// the informer if necessary). This stop channel fires when the controller has stopped.
-	//GetInformerStop(ctx context.Context, obj client.Object) (<-chan struct{}, error)
-
 	// GetInformerForKind is similar to GetInformer, except that it takes a group-version-kind, instead
 	// of the underlying object.
 	GetInformerForKind(ctx context.Context, gvk schema.GroupVersionKind) (Informer, error)

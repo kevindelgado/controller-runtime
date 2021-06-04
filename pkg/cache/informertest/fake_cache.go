@@ -79,14 +79,17 @@ func (c *FakeInformers) GetInformer(ctx context.Context, obj client.Object) (cac
 	return c.informerFor(gvk, obj)
 }
 
-// GetStoppableInformer implements informers
-func (c *FakeInformers) GetInformerStop(ctx context.Context, obj client.Object) (<-chan struct{}, error) {
-	// TODO: not implemented
-	return nil, nil
-}
-func (c *FakeInformers) GetInformerWithOptions(ctx context.Context, obj client.Object, stopperCh chan<- struct{}, handler func(r *toolscache.Reflector, err error)) (cache.Informer, <-chan struct{}, error) {
-	// TODO: not implemented
-	return nil, nil, nil
+// GetInformerWithOptions implements Informers
+func (c *FakeInformers) GetInformerWithOptions(ctx context.Context, obj client.Object, options *cache.InformerOptions) (*cache.InformerInfo, error) {
+	i, err := c.GetInformer(ctx, obj)
+	if err != nil {
+		return nil, err
+	}
+	// fake informer is never started and therefore never stopped
+	// so stop channel is nil
+	return &cache.InformerInfo{
+		Informer: i,
+	}, nil
 }
 
 // WaitForCacheSync implements Informers
