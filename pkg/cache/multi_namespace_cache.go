@@ -139,7 +139,7 @@ func (c *multiNamespaceCache) GetInformer(ctx context.Context, obj client.Object
 //}
 
 // TODO
-func (c *multiNamespaceCache) GetInformerWithOptions(ctx context.Context, obj client.Object, stopperCh chan struct{}, handler func(r *toolscache.Reflector, err error)) (Informer, <-chan struct{}, error) {
+func (c *multiNamespaceCache) GetInformerWithOptions(ctx context.Context, obj client.Object, options *InformerOptions) (*InformerInfo, error) {
 	panic("TODO")
 }
 

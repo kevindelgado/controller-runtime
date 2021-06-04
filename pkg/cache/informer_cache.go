@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
-	toolscache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cache/internal"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -59,7 +58,7 @@ func (ip *informerCache) Get(ctx context.Context, key client.ObjectKey, out clie
 	}
 
 	//started, cache, err := ip.InformersMap.Get(ctx, gvk, out, false)
-	started, cache, err := ip.InformersMap.Get2(ctx, gvk, out, nil, nil)
+	started, cache, err := ip.InformersMap.Get(ctx, gvk, out, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -79,7 +78,7 @@ func (ip *informerCache) List(ctx context.Context, out client.ObjectList, opts .
 	}
 
 	//started, cache, err := ip.InformersMap.Get(ctx, *gvk, cacheTypeObj, false)
-	started, cache, err := ip.InformersMap.Get2(ctx, *gvk, cacheTypeObj, nil, nil)
+	started, cache, err := ip.InformersMap.Get(ctx, *gvk, cacheTypeObj, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -142,7 +141,7 @@ func (ip *informerCache) GetInformerForKind(ctx context.Context, gvk schema.Grou
 	}
 
 	//_, i, err := ip.InformersMap.Get(ctx, gvk, obj, false)
-	_, i, err := ip.InformersMap.Get2(ctx, gvk, obj, nil, nil)
+	_, i, err := ip.InformersMap.Get(ctx, gvk, obj, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +156,7 @@ func (ip *informerCache) GetInformer(ctx context.Context, obj client.Object) (In
 	}
 
 	//_, i, err := ip.InformersMap.Get(ctx, gvk, obj, false)
-	_, i, err := ip.InformersMap.Get2(ctx, gvk, obj, nil, nil)
+	_, i, err := ip.InformersMap.Get(ctx, gvk, obj, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -179,17 +178,20 @@ func (ip *informerCache) GetInformer(ctx context.Context, obj client.Object) (In
 //}
 
 // GetInformerWithOptions
-func (ip *informerCache) GetInformerWithOptions(ctx context.Context, obj client.Object, stopperCh chan struct{}, handler func(r *toolscache.Reflector, err error)) (Informer, <-chan struct{}, error) {
+func (ip *informerCache) GetInformerWithOptions(ctx context.Context, obj client.Object, options *InformerOptions) (*InformerInfo, error) {
 	gvk, err := apiutil.GVKForObject(obj, ip.Scheme)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	_, i, err := ip.InformersMap.Get2(ctx, gvk, obj, stopperCh, handler)
+	_, i, err := ip.InformersMap.Get(ctx, gvk, obj, options.StopperCh, options.ErrorHandler)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return i.Informer, i.StopCh, err
+	return &InformerInfo{
+		i.Informer,
+		i.StopCh,
+	}, nil
 
 }
 

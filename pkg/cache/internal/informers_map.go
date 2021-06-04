@@ -266,7 +266,7 @@ func (ip *specificInformersMap) HasSyncedFuncs() []cache.InformerSynced {
 
 type ErrorHandler func(r *cache.Reflector, err error)
 
-func (ip *specificInformersMap) Get2(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object, stopperCh chan struct{}, handler func(r *cache.Reflector, err error)) (bool, *MapEntry, error) {
+func (ip *specificInformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object, stopperCh chan struct{}, handler func(r *cache.Reflector, err error)) (bool, *MapEntry, error) {
 	// Return the informer if it is found
 	i, started, ok := func() (*MapEntry, bool, bool) {
 		ip.mu.RLock()
@@ -277,7 +277,7 @@ func (ip *specificInformersMap) Get2(ctx context.Context, gvk schema.GroupVersio
 
 	if !ok {
 		var err error
-		if i, started, err = ip.addInformerToMap2(gvk, obj, stopperCh, handler); err != nil {
+		if i, started, err = ip.addInformerToMap(gvk, obj, stopperCh, handler); err != nil {
 			return started, nil, err
 		}
 	}
@@ -292,7 +292,7 @@ func (ip *specificInformersMap) Get2(ctx context.Context, gvk schema.GroupVersio
 	return started, i, nil
 }
 
-func (ip *specificInformersMap) addInformerToMap2(gvk schema.GroupVersionKind, obj runtime.Object, stopperCh chan struct{}, handler func(r *cache.Reflector, err error)) (*MapEntry, bool, error) {
+func (ip *specificInformersMap) addInformerToMap(gvk schema.GroupVersionKind, obj runtime.Object, stopperCh chan struct{}, handler func(r *cache.Reflector, err error)) (*MapEntry, bool, error) {
 	ip.mu.Lock()
 	defer ip.mu.Unlock()
 
