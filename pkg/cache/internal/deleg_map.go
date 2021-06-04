@@ -89,35 +89,20 @@ func (m *InformersMap) WaitForCacheSync(ctx context.Context) bool {
 	return cache.WaitForCacheSync(ctx.Done(), syncedFuncs...)
 }
 
-//// Get will create a new Informer and add it to the map of InformersMap if none exists.  Returns
-//// the Informer from the map.
-//func (m *InformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object, stopOnError bool) (bool, *MapEntry, error) {
-//	switch obj.(type) {
-//	case *unstructured.Unstructured:
-//		return m.unstructured.Get(ctx, gvk, obj, stopOnError)
-//	case *unstructured.UnstructuredList:
-//		return m.unstructured.Get(ctx, gvk, obj, stopOnError)
-//	case *metav1.PartialObjectMetadata:
-//		return m.metadata.Get(ctx, gvk, obj, stopOnError)
-//	case *metav1.PartialObjectMetadataList:
-//		return m.metadata.Get(ctx, gvk, obj, stopOnError)
-//	default:
-//		return m.structured.Get(ctx, gvk, obj, stopOnError)
-//	}
-//}
-
-func (m *InformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object, stopperCh chan struct{}, handler func(r *cache.Reflector, err error)) (bool, *MapEntry, error) {
+// Get will create a new Informer and add it to the map of InformersMap if none exists.  Returns
+// the Informer from the map.
+func (m *InformersMap) Get(ctx context.Context, gvk schema.GroupVersionKind, obj runtime.Object, stopperCh chan struct{}, errorHandler func(r *cache.Reflector, err error)) (bool, *MapEntry, error) {
 	switch obj.(type) {
 	case *unstructured.Unstructured:
-		return m.unstructured.Get(ctx, gvk, obj, stopperCh, handler)
+		return m.unstructured.Get(ctx, gvk, obj, stopperCh, errorHandler)
 	case *unstructured.UnstructuredList:
-		return m.unstructured.Get(ctx, gvk, obj, stopperCh, handler)
+		return m.unstructured.Get(ctx, gvk, obj, stopperCh, errorHandler)
 	case *metav1.PartialObjectMetadata:
-		return m.metadata.Get(ctx, gvk, obj, stopperCh, handler)
+		return m.metadata.Get(ctx, gvk, obj, stopperCh, errorHandler)
 	case *metav1.PartialObjectMetadataList:
-		return m.metadata.Get(ctx, gvk, obj, stopperCh, handler)
+		return m.metadata.Get(ctx, gvk, obj, stopperCh, errorHandler)
 	default:
-		return m.structured.Get(ctx, gvk, obj, stopperCh, handler)
+		return m.structured.Get(ctx, gvk, obj, stopperCh, errorHandler)
 	}
 }
 
