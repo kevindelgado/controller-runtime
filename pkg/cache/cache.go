@@ -46,16 +46,21 @@ type Cache interface {
 	Informers
 }
 
-//type ErrorHandler func(r *toolscache.Reflector, err error)
-
+// InformerOptions gives the caller some options for greater control over the lifecycle of the informer
 type InformerOptions struct {
-	StopperCh    chan struct{}
+	// StopperCh in a channel that when closed, instructs the informer to stop running.
+	StopperCh chan struct{}
+	// ErrorHandler passed to the informer's SetWatchErrorHandler and handles any errors
+	// from ListAndWatch calls made by the informer's underlying reflector.
 	ErrorHandler func(r *toolscache.Reflector, err error)
 }
 
+// InformerInfo provides information when retrieving an informer.
 type InformerInfo struct {
+	// Informer is the Informer retrieved.
 	Informer Informer
-	StopCh   <-chan struct{}
+	// StopCh is a channel that is closed when the informer is stopped.
+	StopCh <-chan struct{}
 }
 
 // Informers knows how to create or fetch informers for different
@@ -66,9 +71,10 @@ type Informers interface {
 	// API kind and resource.
 	GetInformer(ctx context.Context, obj client.Object) (Informer, error)
 
-	// GetInformerWithOptions
-	// TODO: return a struct?
-	// TODO: pass options?
+	// GetInformerWithOptions retrieves an existing informer for the given object along with it's stop channel
+	// that fires when the informer has stopped.
+	//
+	// If the informer does not already exist, it constructs an informer with the supplied InformerOptions.
 	GetInformerWithOptions(ctx context.Context, obj client.Object, options *InformerOptions) (*InformerInfo, error)
 
 	// GetInformerStop fetches the stop channel of the informer for the given object (constructing
