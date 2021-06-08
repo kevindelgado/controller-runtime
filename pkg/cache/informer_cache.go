@@ -57,7 +57,7 @@ func (ip *informerCache) Get(ctx context.Context, key client.ObjectKey, out clie
 		return err
 	}
 
-	started, cache, err := ip.InformersMap.Get(ctx, gvk, out)
+	started, cache, err := ip.InformersMap.Get(ctx, gvk, out, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -76,7 +76,7 @@ func (ip *informerCache) List(ctx context.Context, out client.ObjectList, opts .
 		return err
 	}
 
-	started, cache, err := ip.InformersMap.Get(ctx, *gvk, cacheTypeObj)
+	started, cache, err := ip.InformersMap.Get(ctx, *gvk, cacheTypeObj, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -138,7 +138,7 @@ func (ip *informerCache) GetInformerForKind(ctx context.Context, gvk schema.Grou
 		return nil, err
 	}
 
-	_, i, err := ip.InformersMap.Get(ctx, gvk, obj)
+	_, i, err := ip.InformersMap.Get(ctx, gvk, obj, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -152,11 +152,30 @@ func (ip *informerCache) GetInformer(ctx context.Context, obj client.Object) (In
 		return nil, err
 	}
 
-	_, i, err := ip.InformersMap.Get(ctx, gvk, obj)
+	_, i, err := ip.InformersMap.Get(ctx, gvk, obj, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	return i.Informer, err
+}
+
+// GetInformerWithOptions retrieves the informer and its stop channel, creating and starting a
+// new informer with the supplied options if necessary.
+func (ip *informerCache) GetInformerWithOptions(ctx context.Context, obj client.Object, options *InformerOptions) (*InformerInfo, error) {
+	gvk, err := apiutil.GVKForObject(obj, ip.Scheme)
+	if err != nil {
+		return nil, err
+	}
+
+	_, i, err := ip.InformersMap.Get(ctx, gvk, obj, options.StopperCh, options.ErrorHandler)
+	if err != nil {
+		return nil, err
+	}
+	return &InformerInfo{
+		i.Informer,
+		i.StopCh,
+	}, nil
+
 }
 
 // NeedLeaderElection implements the LeaderElectionRunnable interface
